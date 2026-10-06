@@ -44,7 +44,7 @@ def parse_visitors(text):
 def collect(page, tour):
     url = f"https://experience.tripster.ru/experience/{tour['id']}/"
     error = None
-    for attempt in range(3):
+    for attempt in range(1):
         try:
             response = page.goto(url, wait_until="domcontentloaded", timeout=60000)
             if response is None or response.status >= 400:
@@ -59,6 +59,7 @@ def collect(page, tour):
                 except ValueError:
                     page.wait_for_timeout(1000)
             if value is None:
+                print("PAGE_DIAGNOSTIC", tour["id"], repr(page.locator("body").inner_text()[:18000]), flush=True)
                 raise ValueError("На странице не найден однозначный счётчик")
             return {
                 "id": tour["id"], "name": tour["name"], "url": url,
