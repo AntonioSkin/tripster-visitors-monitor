@@ -95,7 +95,7 @@ def collect(page, tour):
                 except ValueError:
                     page.wait_for_timeout(1000)
             if value is None:
-                print("COUNTER_DIAGNOSTIC", tour["id"], page.url, repr(page.locator("body").inner_text()[:10000]), flush=True)
+                print("COUNTER_DIAGNOSTIC", tour["id"], repr(page.content()[:22000]), flush=True)
                 raise ValueError("На странице не найден однозначный счётчик")
             return {
                 "id": tour["id"], "name": tour["name"], "url": url,
@@ -197,6 +197,7 @@ def main():
         context.route(re.compile(r"\.css(?:\?|$)"), lambda route: route.fulfill(status=200, content_type="text/css", body=""))
         page = context.new_page()
         page.on("requestfailed", lambda req: print("REQUEST_FAILED", req.failure, req.url.split("?")[0], flush=True))
+        page.on("request", lambda req: print("DATA_REQUEST", req.url.split("?")[0], flush=True) if "tripster" in req.url and ("/api/" in req.url or "experience" in req.url) and req.resource_type in ("fetch", "xhr") else None)
         page.on("pageerror", lambda err: print("JS_ERROR", str(err)[:500], flush=True))
         page.on("response", lambda res: print("HTTP_ERROR", res.status, res.url.split("?")[0], flush=True) if res.status >= 400 else None)
         for tour in tours:
