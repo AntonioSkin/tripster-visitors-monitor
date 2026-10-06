@@ -1,4 +1,5 @@
 """Daily snapshots of public Tripster excursion visitor counters."""
+from html.parser import HTMLParser
 import csv
 import io
 import json
@@ -41,6 +42,31 @@ def parse_visitors(text):
     return values.pop()
 
 
+class PageText(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.parts = []
+        self.skip = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in ("script", "style"):
+            self.skip += 1
+
+    def handle_endtag(self, tag):
+        if tag in ("script", "style") and self.skip:
+            self.skip -= 1
+
+    def handle_data(self, data):
+        if not self.skip:
+            self.parts.append(data)
+
+
+def html_text(source):
+    parser = PageText()
+    parser.feed(source)
+    return " ".join(parser.parts)
+
+
 def collect(page, tour):
     url = f"https://experience.tripster.ru/experience/{tour['id']}/"
     error = None
@@ -49,17 +75,23 @@ def collect(page, tour):
             response = page.goto(url, wait_until="domcontentloaded", timeout=60000)
             if response is None or response.status >= 400:
                 raise RuntimeError(f"HTTP {response.status if response else 'no response'}")
+            source_text = html_text(response.text())
+            try:
+                value = parse_visitors(source_text)
+            except ValueError:
+                value = None
             page.locator("h1").first.wait_for(timeout=30000)
             # Wait for the rendered public counter, not a search-engine copy.
-            value = None
-            for _ in range(10):
+            for _ in range(5):
+                if value is not None:
+                    break
                 try:
-                    value = parse_visitors(page.locator("body").inner_text())
+                    value = parse_visitors(html_text(page.content()))
                     break
                 except ValueError:
                     page.wait_for_timeout(1000)
             if value is None:
-                print("PAGE_DIAGNOSTIC", tour["id"], repr(page.locator("body").inner_text()[:18000]), flush=True)
+                print("COUNTER_DIAGNOSTIC", tour["id"], repr(source_text[:8000]), flush=True)
                 raise ValueError("На странице не найден однозначный счётчик")
             return {
                 "id": tour["id"], "name": tour["name"], "url": url,
@@ -69,7 +101,7 @@ def collect(page, tour):
             }
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
-            if attempt < 2:
+            if attempt < 0:
                 time.sleep(3 * (attempt + 1))
     return {
         "id": tour["id"], "name": tour["name"], "url": url,
