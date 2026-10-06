@@ -1,0 +1,50 @@
+name: Daily visitors
+on:
+  schedule:
+    - cron: '15 3 * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'monitor.py'
+      - 'test_monitor.py'
+      - 'excursions.json'
+      - 'requirements.txt'
+      - '.github/workflows/daily.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tripster-visitors
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+      - name: Check counter extraction
+        run: python -m unittest -v
+      - name: Collect live counters
+        id: collect
+        run: python monitor.py
+      - name: Save observations
+        if: ${{ always() && (steps.collect.outcome == 'success' || steps.collect.outcome == 'failure') }}
+        run: |
+          if [ ! -f reports/latest.md ]; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data reports
+          if ! git diff --cached --quiet; then
+            git commit -m "Save daily Tripster visitor counters"
+            git push
+          fi
