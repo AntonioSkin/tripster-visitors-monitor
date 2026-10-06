@@ -192,7 +192,11 @@ def main():
             locale="ru-RU", service_workers="block",
             extra_http_headers={"Cache-Control": "no-cache", "Pragma": "no-cache"},
         )
+        # Text extraction does not need styles; a failed CSS chunk prevents this
+        # site's route from rendering on the runner.
+        context.route(re.compile(r"\.css(?:\?|$)"), lambda route: route.fulfill(status=200, content_type="text/css", body=""))
         page = context.new_page()
+        page.on("requestfailed", lambda req: print("REQUEST_FAILED", req.failure, req.url.split("?")[0], flush=True))
         page.on("pageerror", lambda err: print("JS_ERROR", str(err)[:500], flush=True))
         page.on("response", lambda res: print("HTTP_ERROR", res.status, res.url.split("?")[0], flush=True) if res.status >= 400 else None)
         for tour in tours:
