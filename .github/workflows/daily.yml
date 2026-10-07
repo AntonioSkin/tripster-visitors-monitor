@@ -8,6 +8,8 @@ on:
     paths:
       - 'monitor.py'
       - 'test_monitor.py'
+      - 'telegram_report.py'
+      - 'test_telegram_report.py'
       - 'excursions.json'
       - 'requirements.txt'
       - '.github/workflows/daily.yml'
@@ -48,3 +50,11 @@ jobs:
             git commit -m "Save daily Tripster visitor counters"
             git push
           fi
+
+      - name: Send Telegram report
+        if: ${{ always() && steps.collect.outputs.snapshot != '' }}
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SNAPSHOT_PATH: ${{ steps.collect.outputs.snapshot }}
+        run: python telegram_report.py "$SNAPSHOT_PATH"
