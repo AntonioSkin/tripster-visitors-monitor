@@ -69,49 +69,25 @@ def html_text(source):
 
 def collect(page, tour):
     url = f"https://experience.tripster.ru/experience/{tour['id']}/"
-    error = None
-    for attempt in range(1):
-        try:
-            response = page.goto(url, wait_until="domcontentloaded", timeout=60000)
-            if response is None or response.status >= 400:
-                raise RuntimeError(f"HTTP {response.status if response else 'no response'}")
-            source_text = html_text(response.text())
-            try:
-                value = parse_visitors(source_text)
-            except ValueError:
-                value = None
-            page.locator("h1").first.wait_for(timeout=30000)
-            cookie_button = page.get_by_role("button", name="Accept all", exact=True)
-            if cookie_button.count() and cookie_button.first.is_visible():
-                cookie_button.first.click()
-                page.wait_for_timeout(2000)
-            # Wait for the rendered public counter, not a search-engine copy.
-            for _ in range(5):
-                if value is not None:
-                    break
-                try:
-                    value = parse_visitors(html_text(page.content()))
-                    break
-                except ValueError:
-                    page.wait_for_timeout(1000)
-            if value is None:
-                print("COUNTER_DIAGNOSTIC", tour["id"], repr(page.content()[:22000]), flush=True)
-                raise ValueError("На странице не найден однозначный счётчик")
-            return {
-                "id": tour["id"], "name": tour["name"], "url": url,
-                "title": page.locator("h1").first.inner_text().strip(),
-                "visitors": value, "status": "ok",
-                "checked_at": datetime.now(TZ).isoformat(timespec="seconds"),
-            }
-        except Exception as exc:
-            error = f"{type(exc).__name__}: {exc}"
-            if attempt < 0:
-                time.sleep(3 * (attempt + 1))
-    return {
-        "id": tour["id"], "name": tour["name"], "url": url,
-        "visitors": None, "status": "error", "error": error[:600],
-        "checked_at": datetime.now(TZ).isoformat(timespec="seconds"),
-    }
+    endpoint = f"https://experience.tripster.ru/api/web/v2/experiences/{tour['id']}/"
+    try:
+        response = page.request.get(endpoint, timeout=30000)
+        print("API_STATUS", tour["id"], response.status, flush=True)
+        if response.status != 200:
+            raise ValueError(f"HTTP {response.status}")
+        payload = response.json()
+        def inspect(obj, path=""):
+            if isinstance(obj, dict):
+                for key, val in obj.items():
+                    inspect(val, path + "." + key)
+            elif not isinstance(obj, (list, dict)) and not isinstance(obj, str):
+                print("API_FIELD", tour["id"], path, obj, flush=True)
+        inspect(payload)
+        raise ValueError("Проверка структуры публичного счётчика")
+    except Exception as exc:
+        return {"id": tour["id"], "name": tour["name"], "url": url,
+                "visitors": None, "status": "error", "error": str(exc)[:600],
+                "checked_at": datetime.now(TZ).isoformat(timespec="seconds")}
 
 
 def total(results):
