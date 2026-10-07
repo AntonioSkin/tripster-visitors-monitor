@@ -1,102 +1,59 @@
-"""Daily snapshots of public Tripster excursion visitor counters."""
-from html.parser import HTMLParser
+"""Daily snapshots of the visitor counter used by Tripster's public pages."""
 import csv
 import io
 import json
 import os
-import re
 import sys
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from playwright.sync_api import sync_playwright
-
 ROOT = Path(__file__).resolve().parent
 TZ = ZoneInfo("Asia/Almaty")
-NUMBER = r"(\d+(?:[ \u00a0\u202f]\d{3})*)"
-PAIR = re.compile(
-    NUMBER + r"\s+отзыв(?:а|ов)?\s*[,·|]?\s*" + NUMBER + r"\s+посетил(?:и|о)?\b",
-    re.I,
-)
-REVERSE_PAIR = re.compile(
-    NUMBER + r"\s+посетил(?:и|о)?\s*[,·|]?\s*" + NUMBER + r"\s+отзыв(?:а|ов)?\b",
-    re.I,
-)
 
 
-def parse_visitors(text):
-    """Require the excursion's review+visitor pair; never take the guide total."""
-    normalized = re.sub(r"\s+", " ", text)
-    values = {
-        int(re.sub(r"\s", "", m.group(2)))
-        for m in PAIR.finditer(normalized)
-    }
-    values.update(
-        int(re.sub(r"\s", "", m.group(1)))
-        for m in REVERSE_PAIR.finditer(normalized)
-    )
-    if len(values) != 1:
-        raise ValueError("Счётчик экскурсии отсутствует или найдено несколько разных значений")
-    return values.pop()
-
-
-class PageText(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self.parts = []
-        self.skip = 0
-
-    def handle_starttag(self, tag, attrs):
-        if tag in ("script", "style"):
-            self.skip += 1
-
-    def handle_endtag(self, tag):
-        if tag in ("script", "style") and self.skip:
-            self.skip -= 1
-
-    def handle_data(self, data):
-        if not self.skip:
-            self.parts.append(data)
-
-
-def html_text(source):
-    parser = PageText()
-    parser.feed(source)
-    return " ".join(parser.parts)
+def parse_api_visitors(payload, experience_id):
+    if not isinstance(payload, dict) or type(payload.get("id")) is not int or payload["id"] != experience_id:
+        raise ValueError("Ответ относится к другой экскурсии")
+    count = payload.get("visitors_count")
+    if type(count) is not int or count < 0:
+        raise ValueError("Нет корректного счётчика visitors_count")
+    return count
 
 
 def collect(page, tour):
     url = f"https://experience.tripster.ru/experience/{tour['id']}/"
     endpoint = f"https://experience.tripster.ru/api/web/v2/experiences/{tour['id']}/"
-    def on_response(response):
-        if response.url.split("?")[0] != endpoint:
-            return
-        print("PAGE_API_STATUS", tour["id"], response.status, flush=True)
-        if response.status == 200:
-            try:
-                payload = response.json()
-                def inspect(obj, path=""):
-                    if isinstance(obj, dict):
-                        for key, val in obj.items():
-                            inspect(val, path + "." + key)
-                    elif not isinstance(obj, (list, dict, str)):
-                        print("PAGE_API_FIELD", tour["id"], path, obj, flush=True)
-                inspect(payload)
-            except Exception as exc:
-                print("PAGE_API_ERROR", str(exc)[:200], flush=True)
-    page.on("response", on_response)
-    try:
-        page.goto(url, wait_until="domcontentloaded", timeout=30000)
-        page.wait_for_timeout(5000)
-        raise ValueError("Проверка ответа при обычной загрузке страницы")
-    except Exception as exc:
-        return {"id": tour["id"], "name": tour["name"], "url": url,
-                "visitors": None, "status": "error", "error": str(exc)[:600],
-                "checked_at": datetime.now(TZ).isoformat(timespec="seconds")}
-    finally:
-        page.remove_listener("response", on_response)
+    # Let the public page perform its own normal request. No copied tokens,
+    # private API calls, stored login, or cached search-engine pages.
+    for attempt in range(2):
+        try:
+            with page.expect_response(
+                lambda response: response.url.split("?")[0] == endpoint
+                and response.request.method == "GET",
+                timeout=30000,
+            ) as pending:
+                page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            response = pending.value
+            if response.status != 200:
+                raise ValueError(f"Tripster HTTP {response.status}")
+            count = parse_api_visitors(response.json(), tour["id"])
+            return {
+                "id": tour["id"], "name": tour["name"], "url": url,
+                "visitors": count, "status": "ok",
+                "source": endpoint, "source_field": "visitors_count",
+                "checked_at": datetime.now(TZ).isoformat(timespec="seconds"),
+            }
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            if attempt == 0:
+                time.sleep(3)
+    return {
+        "id": tour["id"], "name": tour["name"], "url": url,
+        "visitors": None, "status": "error", "error": error[:600],
+        "checked_at": datetime.now(TZ).isoformat(timespec="seconds"),
+    }
 
 
 def total(results):
@@ -171,20 +128,14 @@ def main():
         raise ValueError("Нужны уникальные положительные ID экскурсий")
     now = datetime.now(TZ)
     results = []
+    from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
         browser = p.chromium.launch()
         context = browser.new_context(
             locale="ru-RU", service_workers="block",
             extra_http_headers={"Cache-Control": "no-cache", "Pragma": "no-cache"},
         )
-        # Text extraction does not need styles; a failed CSS chunk prevents this
-        # site's route from rendering on the runner.
-        context.route(re.compile(r"\.css(?:\?|$)"), lambda route: route.fulfill(status=200, content_type="text/css", body=""))
         page = context.new_page()
-        page.on("requestfailed", lambda req: print("REQUEST_FAILED", req.failure, req.url.split("?")[0], flush=True))
-        page.on("request", lambda req: print("DATA_REQUEST", req.url.split("?")[0], flush=True) if "tripster" in req.url and ("/api/" in req.url or "experience" in req.url) and req.resource_type in ("fetch", "xhr") else None)
-        page.on("pageerror", lambda err: print("JS_ERROR", str(err)[:500], flush=True))
-        page.on("response", lambda res: print("HTTP_ERROR", res.status, res.url.split("?")[0], flush=True) if res.status >= 400 else None)
         for tour in tours:
             result = collect(page, tour)
             results.append(result)
