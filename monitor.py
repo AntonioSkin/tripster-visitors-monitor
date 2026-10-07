@@ -70,24 +70,33 @@ def html_text(source):
 def collect(page, tour):
     url = f"https://experience.tripster.ru/experience/{tour['id']}/"
     endpoint = f"https://experience.tripster.ru/api/web/v2/experiences/{tour['id']}/"
+    def on_response(response):
+        if response.url.split("?")[0] != endpoint:
+            return
+        print("PAGE_API_STATUS", tour["id"], response.status, flush=True)
+        if response.status == 200:
+            try:
+                payload = response.json()
+                def inspect(obj, path=""):
+                    if isinstance(obj, dict):
+                        for key, val in obj.items():
+                            inspect(val, path + "." + key)
+                    elif not isinstance(obj, (list, dict, str)):
+                        print("PAGE_API_FIELD", tour["id"], path, obj, flush=True)
+                inspect(payload)
+            except Exception as exc:
+                print("PAGE_API_ERROR", str(exc)[:200], flush=True)
+    page.on("response", on_response)
     try:
-        response = page.request.get(endpoint, timeout=30000)
-        print("API_STATUS", tour["id"], response.status, flush=True)
-        if response.status != 200:
-            raise ValueError(f"HTTP {response.status}")
-        payload = response.json()
-        def inspect(obj, path=""):
-            if isinstance(obj, dict):
-                for key, val in obj.items():
-                    inspect(val, path + "." + key)
-            elif not isinstance(obj, (list, dict)) and not isinstance(obj, str):
-                print("API_FIELD", tour["id"], path, obj, flush=True)
-        inspect(payload)
-        raise ValueError("Проверка структуры публичного счётчика")
+        page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        page.wait_for_timeout(5000)
+        raise ValueError("Проверка ответа при обычной загрузке страницы")
     except Exception as exc:
         return {"id": tour["id"], "name": tour["name"], "url": url,
                 "visitors": None, "status": "error", "error": str(exc)[:600],
                 "checked_at": datetime.now(TZ).isoformat(timespec="seconds")}
+    finally:
+        page.remove_listener("response", on_response)
 
 
 def total(results):
