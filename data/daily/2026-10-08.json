@@ -1,0 +1,76 @@
+{
+  "date": "2026-10-08",
+  "checked_at": "2026-10-08T15:38:08+05:00",
+  "results": [
+    {
+      "id": 51192,
+      "name": "Юлия — всё включено: каньоны, Кольсай и Каинды",
+      "url": "https://experience.tripster.ru/experience/51192/",
+      "visitors": 2123,
+      "status": "ok",
+      "source": "https://experience.tripster.ru/api/web/v2/experiences/51192/",
+      "source_field": "visitors_count",
+      "checked_at": "2026-10-08T15:37:44+05:00"
+    },
+    {
+      "id": 54971,
+      "name": "Каньоны и Каинды с фотографом-гидом",
+      "url": "https://experience.tripster.ru/experience/54971/",
+      "visitors": 406,
+      "status": "ok",
+      "source": "https://experience.tripster.ru/api/web/v2/experiences/54971/",
+      "source_field": "visitors_count",
+      "checked_at": "2026-10-08T15:37:48+05:00"
+    },
+    {
+      "id": 57434,
+      "name": "Природа Казахстана: 5 лучших мест за 1 день",
+      "url": "https://experience.tripster.ru/experience/57434/",
+      "visitors": 1302,
+      "status": "ok",
+      "source": "https://experience.tripster.ru/api/web/v2/experiences/57434/",
+      "source_field": "visitors_count",
+      "checked_at": "2026-10-08T15:37:52+05:00"
+    },
+    {
+      "id": 96862,
+      "name": "Комфорт-маршрут: Каинды, Кольсай и Чарын",
+      "url": "https://experience.tripster.ru/experience/96862/",
+      "visitors": 447,
+      "status": "ok",
+      "source": "https://experience.tripster.ru/api/web/v2/experiences/96862/",
+      "source_field": "visitors_count",
+      "checked_at": "2026-10-08T15:37:55+05:00"
+    },
+    {
+      "id": 55575,
+      "name": "Фотопрогулка: Кольсай, Каинды и Чарын",
+      "url": "https://experience.tripster.ru/experience/55575/",
+      "visitors": 159,
+      "status": "ok",
+      "source": "https://experience.tripster.ru/api/web/v2/experiences/55575/",
+      "source_field": "visitors_count",
+      "checked_at": "2026-10-08T15:37:59+05:00"
+    },
+    {
+      "id": 53900,
+      "name": "Чарынский и Лунный каньоны + Кольсай",
+      "url": "https://experience.tripster.ru/experience/53900/",
+      "visitors": 55,
+      "status": "ok",
+      "source": "https://experience.tripster.ru/api/web/v2/experiences/53900/",
+      "source_field": "visitors_count",
+      "checked_at": "2026-10-08T15:38:02+05:00"
+    },
+    {
+      "id": 85543,
+      "name": "Топ-локации: Чарын, Кольсай и Каинды в мини-группе",
+      "url": "https://experience.tripster.ru/experience/85543/",
+      "visitors": 156,
+      "status": "ok",
+      "source": "https://experience.tripster.ru/api/web/v2/experiences/85543/",
+      "source_field": "visitors_count",
+      "checked_at": "2026-10-08T15:38:06+05:00"
+    }
+  ]
+}
