@@ -1,4 +1,4 @@
-# On-demand collection requested on 2026-10-10.
+# First Telegram delivery requested after secrets setup on 2026-10-10.
 name: Daily visitors
 on:
   schedule:
