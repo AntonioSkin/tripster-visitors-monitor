@@ -1,16 +1,13 @@
-# First Telegram delivery requested after secrets setup on 2026-10-10.
 name: Daily visitors
 on:
   schedule:
-    - cron: '15 3 * * *'
+    - cron: '7,27,47 8,9 * * *'
+      timezone: 'Asia/Almaty'
   workflow_dispatch:
   push:
     branches: [main]
     paths:
-      - 'monitor.py'
-      - 'test_monitor.py'
-      - 'telegram_report.py'
-      - 'test_telegram_report.py'
+      - '*.py'
       - 'excursions.json'
       - 'requirements.txt'
       - '.github/workflows/daily.yml'
@@ -28,30 +25,25 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Check collection and delivery rules
+        run: python -m unittest -v
+      - name: Check morning window and delivery receipt
+        id: gate
+        run: python delivery_policy.py
       - name: Install dependencies
+        if: steps.gate.outputs.collect == 'true'
         run: |
           pip install -r requirements.txt
           python -m playwright install --with-deps chromium
-      - name: Check counter extraction
-        run: python -m unittest -v
       - name: Collect live counters
+        if: steps.gate.outputs.collect == 'true'
         id: collect
         run: python monitor.py
-      - name: Save observations
-        if: ${{ always() && (steps.collect.outcome == 'success' || steps.collect.outcome == 'failure') }}
-        run: |
-          if [ ! -f reports/latest.md ]; then exit 0; fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data reports
-          if ! git diff --cached --quiet; then
-            git commit -m "Save daily Tripster visitor counters"
-            git push
-          fi
-
       - name: Send Telegram report
         if: ${{ always() && steps.collect.outputs.snapshot != '' }}
         env:
@@ -59,3 +51,13 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SNAPSHOT_PATH: ${{ steps.collect.outputs.snapshot }}
         run: python telegram_report.py "$SNAPSHOT_PATH"
+      - name: Save observations and delivery receipt
+        if: ${{ always() && steps.collect.outputs.snapshot != '' }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data reports
+          if ! git diff --cached --quiet; then
+            git commit -m "Save Tripster counters and Telegram delivery receipt"
+            git push
+          fi
