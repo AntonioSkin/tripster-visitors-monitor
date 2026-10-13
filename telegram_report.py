@@ -82,7 +82,7 @@ def main():
         yesterday = (date.fromisoformat(snapshot["date"]) - timedelta(days=1)).isoformat()
         previous_path = ROOT / f"data/daily/{yesterday}.json"
         previous = json.loads(previous_path.read_text(encoding="utf-8")) if previous_path.exists() else None
-        # Recheck immediately before sending: collection may cross 10:00.
+        # Recheck date and receipt immediately before sending.
         now = datetime.now(TZ)
         allowed, reason = delivery_allowed(os.environ.get("GITHUB_EVENT_NAME", ""), now, ROOT)
         if not allowed:
@@ -90,6 +90,8 @@ def main():
             return 0
         if snapshot["date"] != now.date().isoformat():
             raise ValueError("Нельзя отправить устаревший снимок")
+        if total(snapshot["results"]) is None:
+            raise RuntimeError("Неполный сбор: данные сохранены, отправку повторит следующий запуск")
         send_message(token, chat_id, format_report(snapshot, previous))
         write_text(ROOT / f"data/telegram/{snapshot['date']}.json",
                    json.dumps({"sent_at": datetime.now(TZ).isoformat(timespec="seconds"),

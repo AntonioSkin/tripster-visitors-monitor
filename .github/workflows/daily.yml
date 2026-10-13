@@ -1,8 +1,7 @@
 name: Daily visitors
 on:
   schedule:
-    - cron: '7,27,47 8,9 * * *'
-      timezone: 'Asia/Almaty'
+    - cron: '7,27,47 * * * *' # UTC: frequent wakeups; actual Almaty time checked in Python
   workflow_dispatch:
   push:
     branches: [main]
@@ -23,6 +22,8 @@ jobs:
   collect:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    env:
+      COLLECT_NOW: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[collect-now]') }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -32,7 +33,7 @@ jobs:
           python-version: '3.12'
       - name: Check collection and delivery rules
         run: python -m unittest -v
-      - name: Check morning window and delivery receipt
+      - name: Check daily delivery eligibility
         id: gate
         run: python delivery_policy.py
       - name: Install dependencies

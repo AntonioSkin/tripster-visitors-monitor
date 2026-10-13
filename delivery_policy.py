@@ -1,4 +1,4 @@
-"""Morning delivery policy, evaluated using the actual Almaty clock."""
+"""Daily delivery: prefer morning, but never discard a delayed daytime run."""
 import os
 from datetime import datetime
 from monitor import ROOT, TZ
@@ -6,10 +6,10 @@ from monitor import ROOT, TZ
 
 def delivery_allowed(event, now=None, root=ROOT):
     now = (now or datetime.now(TZ)).astimezone(TZ)
-    if event == "push":
+    if event == "push" and os.environ.get("COLLECT_NOW") != "true":
         return False, "Изменение кода: только проверки"
-    if event == "schedule" and not (8 <= now.hour < 10):
-        return False, "Вне утреннего окна 08:00–10:00 Алматы"
+    if event == "schedule" and now.hour < 8:
+        return False, "До 08:00 Алматы: ждём утреннего запуска"
     if (root / f"data/telegram/{now.date().isoformat()}.json").exists():
         return False, "Сегодня отчёт уже отправлен"
     return True, "Можно собирать и отправлять"
