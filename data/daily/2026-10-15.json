@@ -1,6 +1,6 @@
 {
   "date": "2026-10-15",
-  "checked_at": "2026-10-15T09:26:58+05:00",
+  "checked_at": "2026-10-15T11:27:34+05:00",
   "results": [
     {
       "id": 51192,
@@ -10,7 +10,7 @@
       "status": "ok",
       "source": "https://experience.tripster.ru/api/web/v2/experiences/51192/",
       "source_field": "visitors_count",
-      "checked_at": "2026-10-15T09:26:37+05:00"
+      "checked_at": "2026-10-15T11:27:00+05:00"
     },
     {
       "id": 54971,
@@ -20,7 +20,7 @@
       "status": "ok",
       "source": "https://experience.tripster.ru/api/web/v2/experiences/54971/",
       "source_field": "visitors_count",
-      "checked_at": "2026-10-15T09:26:40+05:00"
+      "checked_at": "2026-10-15T11:27:03+05:00"
     },
     {
       "id": 57434,
@@ -30,7 +30,7 @@
       "status": "ok",
       "source": "https://experience.tripster.ru/api/web/v2/experiences/57434/",
       "source_field": "visitors_count",
-      "checked_at": "2026-10-15T09:26:43+05:00"
+      "checked_at": "2026-10-15T11:27:07+05:00"
     },
     {
       "id": 96862,
@@ -40,7 +40,7 @@
       "status": "ok",
       "source": "https://experience.tripster.ru/api/web/v2/experiences/96862/",
       "source_field": "visitors_count",
-      "checked_at": "2026-10-15T09:26:47+05:00"
+      "checked_at": "2026-10-15T11:27:10+05:00"
     },
     {
       "id": 55575,
@@ -50,7 +50,7 @@
       "status": "ok",
       "source": "https://experience.tripster.ru/api/web/v2/experiences/55575/",
       "source_field": "visitors_count",
-      "checked_at": "2026-10-15T09:26:50+05:00"
+      "checked_at": "2026-10-15T11:27:14+05:00"
     },
     {
       "id": 53900,
@@ -60,7 +60,7 @@
       "status": "ok",
       "source": "https://experience.tripster.ru/api/web/v2/experiences/53900/",
       "source_field": "visitors_count",
-      "checked_at": "2026-10-15T09:26:53+05:00"
+      "checked_at": "2026-10-15T11:27:17+05:00"
     },
     {
       "id": 85543,
@@ -70,7 +70,37 @@
       "status": "ok",
       "source": "https://experience.tripster.ru/api/web/v2/experiences/85543/",
       "source_field": "visitors_count",
-      "checked_at": "2026-10-15T09:26:56+05:00"
+      "checked_at": "2026-10-15T11:27:21+05:00"
+    },
+    {
+      "id": 73464,
+      "name": "3 в 1 из Алматы: Чарынский каньон + озёра Кольсай и Каинды",
+      "url": "https://experience.tripster.ru/experience/73464/",
+      "visitors": 78,
+      "status": "ok",
+      "source": "https://experience.tripster.ru/api/web/v2/experiences/73464/",
+      "source_field": "visitors_count",
+      "checked_at": "2026-10-15T11:27:24+05:00"
+    },
+    {
+      "id": 120781,
+      "name": "Чарынский каньон и озеро Кольсай с комфортом — из Алматы",
+      "url": "https://experience.tripster.ru/experience/120781/",
+      "visitors": 21,
+      "status": "ok",
+      "source": "https://experience.tripster.ru/api/web/v2/experiences/120781/",
+      "source_field": "visitors_count",
+      "checked_at": "2026-10-15T11:27:28+05:00"
+    },
+    {
+      "id": 80259,
+      "name": "Из Алматы — Кольсай, Каинды, Чарынский и Чёрный каньоны",
+      "url": "https://experience.tripster.ru/experience/80259/",
+      "visitors": 154,
+      "status": "ok",
+      "source": "https://experience.tripster.ru/api/web/v2/experiences/80259/",
+      "source_field": "visitors_count",
+      "checked_at": "2026-10-15T11:27:32+05:00"
     }
   ]
 }
