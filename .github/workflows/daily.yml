@@ -37,12 +37,12 @@ jobs:
         id: gate
         run: python delivery_policy.py
       - name: Install dependencies
-        if: steps.gate.outputs.collect == 'true'
+        if: steps.gate.outputs.collect == 'true' || env.COLLECT_NOW == 'true'
         run: |
           pip install -r requirements.txt
           python -m playwright install --with-deps chromium
       - name: Collect live counters
-        if: steps.gate.outputs.collect == 'true'
+        if: steps.gate.outputs.collect == 'true' || env.COLLECT_NOW == 'true'
         id: collect
         run: python monitor.py
       - name: Send Telegram report
