@@ -10,6 +10,9 @@ from monitor import ROOT, write_text
 from telegram_report import send_message
 
 EXPERIENCE_ID = 51584
+EXPERIENCE_TITLE = "Озёра Каинды и Кольсай, Черный и Чарынский каньоны — все сокровища Алматы"
+GUIDE_NAME = "Антон"
+EXPERIENCE_LABEL = f"{EXPERIENCE_TITLE}\nГид: {GUIDE_NAME}\nЭкскурсия №{EXPERIENCE_ID}"
 THRESHOLD = 7
 DAYS = 30
 TZ = ZoneInfo("Asia/Almaty")
@@ -106,7 +109,7 @@ def next_notifications(snapshot, state):
 
 
 def alert_text(snapshot, slots):
-    lines = ["Tripster: осталось меньше 7 мест", f"Экскурсия {EXPERIENCE_ID}", ""]
+    lines = ["Tripster: осталось меньше 7 мест", EXPERIENCE_LABEL, ""]
     for slot in slots:
         day = date.fromisoformat(slot["date"]).strftime("%d.%m.%Y")
         lines.append(f"{day} в {slot['time']} — свободно {slot['available']} мест")
@@ -133,7 +136,7 @@ def run_check(collect_fn=collect, send_fn=send_message, directory=DIRECTORY):
         save_json(directory / "status.json", {"ok": False, "checked_at": datetime.now(TZ).isoformat(),
                   "message": "Не удалось прочитать полный календарь; старые остатки сохранены"})
         if not state.get("error_notified"):
-            send_fn(token, chat, f"Tripster {EXPERIENCE_ID}: не удалось проверить свободные места. "
+            send_fn(token, chat, f"{EXPERIENCE_LABEL}\nНе удалось проверить свободные места. "
                     "Остатки неизвестны. Следующие попытки продолжатся каждые 30 минут.\n" + URL)
             state["error_notified"] = True
             save_json(state_path, state)
@@ -149,12 +152,12 @@ def run_check(collect_fn=collect, send_fn=send_message, directory=DIRECTORY):
     if not state.get("initialized") and not low:
         counts = [r["available"] for r in snapshot["slots"]]
         summary = f"Минимальный остаток: {min(counts)} мест." if counts else "Открытые выезды не найдены; это не означает ноль мест."
-        send_fn(token, chat, f"Мониторинг мест Tripster {EXPERIENCE_ID} включён.\n"
+        send_fn(token, chat, f"Мониторинг мест Tripster включён.\n{EXPERIENCE_LABEL}\n"
                 f"Период: {snapshot['date_from']} — {snapshot['date_to']} (30 календарных дней, Алматы).\n"
                 f"Порог: 0–6 мест. Проверки запланированы каждые 30 минут.\n"
                 f"Проверено выездов: {len(counts)}. {summary}\n" + URL)
     elif state.get("error_notified") and not low:
-        send_fn(token, chat, f"Tripster {EXPERIENCE_ID}: чтение календаря восстановлено. "
+        send_fn(token, chat, f"{EXPERIENCE_LABEL}\nЧтение календаря восстановлено. "
                 "Новых изменений ниже порога 7 мест нет.\n" + URL)
     state.update({"initialized": True, "error_notified": False,
                   "notified": next_notifications(snapshot, state),
@@ -163,7 +166,7 @@ def run_check(collect_fn=collect, send_fn=send_message, directory=DIRECTORY):
     save_json(directory / "status.json", {"ok": True, "checked_at": snapshot["checked_at"],
                                          "slots": len(snapshot["slots"]), "alerts": len(low)})
     print(f"Проверено выездов: {len(snapshot['slots'])}; новых уведомлений о низком остатке: {len(low)}")
-    report = ["# Свободные места — Tripster 51584", "",
+    report = ["# Свободные места — Tripster 51584", "", EXPERIENCE_TITLE, f"Гид: {GUIDE_NAME}", "",
               f"Проверка: {snapshot['checked_at']}", f"Период: {snapshot['date_from']} — {snapshot['date_to']}",
               "", "| Дата | Время | Свободно |", "|---|---|---:|"]
     report += [f"| {s['date']} | {s['time']} | {s['available']} |" for s in snapshot["slots"]]
