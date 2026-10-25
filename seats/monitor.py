@@ -31,7 +31,7 @@ def normalize(payload, now):
     coverage_end = date.fromisoformat(payload["end"])
     coverage_begin = date.fromisoformat(payload["begin"])
     if coverage_end < end or coverage_begin > start + timedelta(days=1):
-        raise ValueError("Ответ календаря не покрывает ближайшие 30 дней")
+        raise ValueError(f"Ответ календаря не покрывает ближайшие 30 дней: begin={coverage_begin}, end={coverage_end}, required={start}..{end}")
     defaults = payload.get("defaults", {})
     result = []
     missing = []
