@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from seats.monitor import normalize, changed_low_slots, next_notifications, run_check
+from seats.monitor import EXPERIENCES, alert_text, run_all
 
 NOW = datetime.fromisoformat("2026-10-25T10:00:00+05:00")
 
@@ -20,6 +21,24 @@ def payload(count=6):
 
 
 class SeatsTests(unittest.TestCase):
+    def test_tour_identity_and_message(self):
+        for tour in EXPERIENCES:
+            snap = normalize(payload(), NOW, tour)
+            self.assertEqual(snap['experience_id'], tour['id'])
+            self.assertIn(str(tour['id']), snap['source'])
+            message = alert_text(snap, snap['slots'], tour)
+            self.assertIn(tour['title'], message)
+            self.assertIn(tour['guide'], message)
+
+    def test_tours_have_separate_state_and_continue_after_failure(self):
+        checker = Mock(side_effect=[RuntimeError('failed'), None, None, None])
+        with self.assertRaises(RuntimeError):
+            run_all(checker, Path('/tmp/seat-test'))
+        self.assertEqual(checker.call_count, 4)
+        paths = [call.kwargs['directory'] for call in checker.call_args_list]
+        self.assertEqual(len(set(paths)), 4)
+        self.assertEqual(paths[0], Path('/tmp/seat-test'))
+
     def test_remaining_is_not_capacity_minus_booked(self):
         snap = normalize(payload(8), NOW)
         self.assertEqual(snap["slots"][0]["available"], 8)
