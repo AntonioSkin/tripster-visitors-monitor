@@ -1,6 +1,6 @@
 {
   "initialized": true,
-  "error_notified": false,
+  "error_notified": true,
   "notified": {
     "2026-10-26T05:45": 3,
     "2026-11-06T05:45": 5
