@@ -82,7 +82,10 @@ def collect():
                     if response.status != 200:
                         raise ValueError(f"HTTP {response.status} при чтении календаря")
                     return normalize(response.json(), datetime.now(TZ))
-                except Exception:
+                except Exception as exc:
+                    # Calendar errors contain no Telegram credentials; log only known validation messages.
+                    detail = str(exc) if type(exc) is ValueError else type(exc).__name__
+                    print(f"Calendar attempt {attempt + 1}/3 failed: {detail}", flush=True)
                     if attempt == 2:
                         raise
                     time.sleep(4)
@@ -137,7 +140,7 @@ def run_check(collect_fn=collect, send_fn=send_message, directory=DIRECTORY):
                   "message": "Не удалось прочитать полный календарь; старые остатки сохранены"})
         if not state.get("error_notified"):
             send_fn(token, chat, f"{EXPERIENCE_LABEL}\nНе удалось проверить свободные места. "
-                    "Остатки неизвестны. Следующие попытки продолжатся каждые 30 минут.\n" + URL)
+                    "Остатки неизвестны. Повторные проверки запланированы каждые 30 минут; возможны задержки запуска.\n" + URL)
             state["error_notified"] = True
             save_json(state_path, state)
         raise RuntimeError("Ошибка чтения календаря") from None
