@@ -1,3 +1,4 @@
+# Recheck calendar after user changed November availability.
 name: Tripster seat alerts
 on:
   schedule:

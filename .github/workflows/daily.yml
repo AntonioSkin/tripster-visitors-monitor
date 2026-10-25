@@ -62,3 +62,27 @@ jobs:
             git commit -m "Save Tripster counters and Telegram delivery receipt"
             git push
           fi
+
+      - name: Install seat monitor browser
+        if: ${{ always() && github.event_name != 'push' }}
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+      - name: Backup seat check
+        if: ${{ always() && github.event_name != 'push' }}
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python -m seats.monitor
+      - name: Save backup seat check
+        if: ${{ always() && github.event_name != 'push' }}
+        run: |
+          if [ ! -d data/seats ]; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/seats
+          if [ -f reports/seats.md ]; then git add reports/seats.md; fi
+          if ! git diff --cached --quiet; then
+            git commit -m "Save backup seat observation and alert state"
+            git push
+          fi
