@@ -64,6 +64,16 @@ class SeatsTests(unittest.TestCase):
         self.assertEqual(len(snap["slots"]), 2)
         self.assertIn("2026-10-27", snap["dates_without_slots"])
 
+    def test_evening_calendar_begin_can_advance(self):
+        data = payload(6)
+        entry = data["schedule"].pop("2026-10-26")
+        data["begin"] = "2026-10-27"
+        data["schedule"]["2026-11-06"] = entry
+        snap = normalize(data, NOW.replace(hour=20))
+        self.assertEqual(changed_low_slots(snap, {})[0]["available"], 6)
+        self.assertIn("2026-10-26", snap["dates_without_slots"])
+        self.assertEqual(snap["date_to"], "2026-11-23")
+
     def test_short_coverage_rejected(self):
         data = payload()
         data["end"] = "2026-10-28"

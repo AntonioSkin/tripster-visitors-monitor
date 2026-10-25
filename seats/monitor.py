@@ -30,7 +30,9 @@ def normalize(payload, now):
     end = start + timedelta(days=DAYS - 1)
     coverage_end = date.fromisoformat(payload["end"])
     coverage_begin = date.fromisoformat(payload["begin"])
-    if coverage_end < end or coverage_begin > start + timedelta(days=1):
+    # begin is the first bookable date and may advance after the booking cutoff.
+    # Earlier missing dates remain unknown; they are never treated as zero seats.
+    if coverage_end < end or coverage_begin > coverage_end:
         raise ValueError(f"Ответ календаря не покрывает ближайшие 30 дней: begin={coverage_begin}, end={coverage_end}, required={start}..{end}")
     defaults = payload.get("defaults", {})
     result = []
