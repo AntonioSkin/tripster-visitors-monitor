@@ -1,0 +1,60 @@
+name: Daily full calendar history
+on:
+  schedule:
+    - cron: '19 * * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['calendar_history/**', '.github/workflows/calendar-history.yml']
+permissions:
+  contents: write
+concurrency:
+  group: tripster-visitors
+  cancel-in-progress: false
+jobs:
+  history:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test history rules
+        run: python -m unittest calendar_history.test_monitor seats.test_monitor -v
+      - name: Check daily gate
+        id: gate
+        run: |
+          python - <<'PY'
+          import os
+          from datetime import datetime
+          from calendar_history.monitor import DIRECTORY, TZ
+          now = datetime.now(TZ)
+          allowed = (os.environ['GITHUB_EVENT_NAME'] != 'schedule' or now.hour >= 8) and not (DIRECTORY / 'telegram' / f'{now.date()}.json').exists()
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f'run={str(allowed).lower()}\n')
+          PY
+      - name: Install browser
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+      - name: Snapshot full calendar and send daily summary
+        if: steps.gate.outputs.run == 'true'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python -m calendar_history.monitor
+      - name: Save immutable snapshots and tables
+        if: always()
+        run: |
+          if [ ! -d data/calendar_history ]; then exit 0; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data/calendar_history
+          if ! git diff --cached --quiet; then
+            git commit -m 'Save daily full calendar history and Telegram receipt'
+            git push
+          fi

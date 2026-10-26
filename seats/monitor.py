@@ -36,7 +36,7 @@ TZ = ZoneInfo("Asia/Almaty")
 DIRECTORY = ROOT / "data/seats"
 
 
-def normalize(payload, now, experience=DEFAULT_EXPERIENCE):
+def normalize(payload, now, experience=DEFAULT_EXPERIENCE, full_calendar=False):
     if not isinstance(payload, dict) or not isinstance(payload.get("schedule"), dict):
         raise ValueError("Нет корректного календаря")
     zone = ZoneInfo(payload["timezone"])
@@ -45,6 +45,10 @@ def normalize(payload, now, experience=DEFAULT_EXPERIENCE):
     end = start + timedelta(days=DAYS - 1)
     coverage_end = date.fromisoformat(payload["end"])
     coverage_begin = date.fromisoformat(payload["begin"])
+    if full_calendar:
+        end = coverage_end
+        if end < start:
+            raise ValueError("Календарь устарел")
     # begin is the first bookable date and may advance after the booking cutoff.
     # Earlier missing dates remain unknown; they are never treated as zero seats.
     if coverage_end < end or coverage_begin > coverage_end:
@@ -52,7 +56,7 @@ def normalize(payload, now, experience=DEFAULT_EXPERIENCE):
     defaults = payload.get("defaults", {})
     result = []
     missing = []
-    for offset in range(DAYS):
+    for offset in range((end - start).days + 1):
         day = start + timedelta(days=offset)
         entries = payload["schedule"].get(day.isoformat())
         if not entries:
@@ -80,7 +84,7 @@ def normalize(payload, now, experience=DEFAULT_EXPERIENCE):
             "source": calendar_url(experience)}
 
 
-def collect(experience=DEFAULT_EXPERIENCE):
+def collect(experience=DEFAULT_EXPERIENCE, full_calendar=False):
     endpoint = calendar_url(experience)
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
@@ -99,7 +103,7 @@ def collect(experience=DEFAULT_EXPERIENCE):
                     response = pending.value
                     if response.status != 200:
                         raise ValueError(f"HTTP {response.status} при чтении календаря")
-                    return normalize(response.json(), datetime.now(TZ), experience)
+                    return normalize(response.json(), datetime.now(TZ), experience, full_calendar=full_calendar)
                 except Exception as exc:
                     # Calendar errors contain no Telegram credentials; log only known validation messages.
                     detail = str(exc) if type(exc) is ValueError else type(exc).__name__
