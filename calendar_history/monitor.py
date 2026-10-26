@@ -48,11 +48,27 @@ HEADERS = {'observed': 'Дата замера', 'departure': 'Дата выез�
            'status': 'Статус'}
 
 
+def group_rows(rows):
+    """One row per observation/departure date; values follow departure time order."""
+    groups = {}
+    for row in rows:
+        groups.setdefault((row['observed'], row['departure']), []).append(row)
+    result = []
+    for key in sorted(groups):
+        slots = sorted(groups[key], key=lambda r: r['time'])
+        row = {'observed': key[0], 'departure': key[1]}
+        for field in HEADERS:
+            if field not in row:
+                row[field] = ' '.join('—' if r[field] is None else str(r[field]) for r in slots)
+        result.append(row)
+    return result
+
+
 def write_csv(path, rows):
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(HEADERS.values())
-    for row in rows:
+    for row in group_rows(rows):
         writer.writerow([row[k] if row[k] is not None else '' for k in HEADERS])
     write_text(path, '\ufeff' + buf.getvalue())
 
@@ -70,10 +86,18 @@ def summary_text(snapshot, rows):
         lines.append(f"Чистое уменьшение за сутки: {sum(r['daily_decrease'] for r in comparable):+d} мест по {len(comparable)} сравнимым выездам.")
     else:
         lines.append('Сравнения за сутки пока нет: нужен замер за вчера.')
-    for r in changed[:35]:
-        lines.append(f"{r['departure']} {r['time']}: осталось {r['remaining']}; уменьшение {r['daily_decrease']:+d}")
-    if len(changed) > 35:
-        lines.append(f'Ещё изменений: {len(changed) - 35}; все — в таблице.')
+    changed_dates = {r['departure'] for r in changed}
+    grouped = [r for r in group_rows(today) if r['departure'] in changed_dates]
+    shown = 0
+    for r in grouped:
+        line = f"{r['departure']} ({r['time']}): осталось {r['remaining']}; уменьшение {r['daily_decrease']}"
+        if len('\n'.join(lines)) + len(line) > 3100:
+            break
+        lines.append(line)
+        shown += 1
+    if shown < len(grouped):
+        lines.append(f'Ещё дат с изменениями: {len(grouped) - shown}; все — в таблице.')
+    lines.append('Числа перечислены в порядке времени выезда; «—» означает нет данных.')
     lines += ['Изменение остатка не равно точным продажам: возможны добавления мест и отмены.',
               'Отсутствующая дата — неизвестный остаток, не ноль.', REPORT_URL]
     return '\n'.join(lines)
