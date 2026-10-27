@@ -44,6 +44,30 @@ def save_table(path, rows):
     write_text(path,'\ufeff'+out.getvalue())
 
 
+def places_word(count):
+    if 11 <= count % 100 <= 14:
+        return 'мест'
+    return 'место' if count % 10 == 1 else 'места' if count % 10 in (2, 3, 4) else 'мест'
+
+
+def report_text(current):
+    lines=['Задача 3 — остатки мест','Гид: Юлия','51192 / 96862 / 53900','']
+    changed=[r for r in current if r['daily'] is not None and r['daily'] != 0]
+    if not changed:
+        lines.append('Изменений за сутки нет.' if any(r['daily'] is not None for r in current) else 'Начальные остатки зафиксированы.')
+    for row in changed:
+        delta=row['daily']
+        count=abs(delta)
+        action='продано' if delta > 0 else 'добавлено'
+        date=datetime.fromisoformat(row['departure']).strftime('%d.%m.%Y')
+        line=f'{date}: {action} {count} {places_word(count)}'
+        if len('\n'.join(lines))+len(line)>3400:
+            break
+        lines.append(line)
+    lines.extend(['','Все актуальные данные — в таблице.',URL])
+    return '\n'.join(lines)
+
+
 def run():
     now=datetime.now(TZ); day=now.date().isoformat()
     if os.environ.get('GITHUB_EVENT_NAME')=='schedule' and now.hour<8:
@@ -80,19 +104,7 @@ def run():
     save_table(DIRECTORY/'history.csv',history)
     save_table(DIRECTORY/'summary.csv',[latest[k] for k in sorted(latest)])
     current=merge_rows(all_rows,day)
-    changed=[r for r in current if r['changed']]
-    lines=['Задача 3 — остатки мест','Гид: Юлия','51192 / 96862 / 53900','']
-    if not changed:
-        lines.append('Начальные остатки зафиксированы.' if not any(r['daily'] is not None for r in current) else 'Изменений за сутки нет.')
-    display=changed or current
-    shown=0
-    for r in display:
-        line=f"{datetime.fromisoformat(r['departure']).strftime('%d.%m.%Y')}: {r['remaining']}"
-        if len('\n'.join(lines))+len(line)>3400: break
-        lines.append(line); shown+=1
-    if shown<len(display): lines.append('Все даты — в таблице.')
-    lines.append(URL)
-    text='\n'.join(lines)
+    text=report_text(current)
     write_text(DIRECTORY/'latest.txt',text+'\n')
     send_message(token,chat,text)
     save_json(receipt,{'sent_at':datetime.now(TZ).isoformat(),'tours':[t['id'] for t in TOURS]})
