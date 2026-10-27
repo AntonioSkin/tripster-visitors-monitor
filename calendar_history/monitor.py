@@ -82,8 +82,6 @@ def summary_text(snapshot, rows):
     changed = [r for r in comparable if r['daily_decrease'] != 0]
     new = [r for r in today if r['first_seen'] == snapshot['date_from']]
     lines = ['Задача 3 — ежедневная история мест', experience_label(TOUR),
-             f"Замер: {snapshot['checked_at']} (Алматы)",
-             f"Весь календарь до {snapshot['date_to']}. Выездов: {len(snapshot['slots'])}.",
              f'Новых выездов с начальным остатком: {len(new)}.']
     if comparable:
         lines.append(f"Чистое уменьшение за сутки: {sum(r['daily_decrease'] for r in comparable):+d} мест по {len(comparable)} сравнимым выездам.")
@@ -100,9 +98,7 @@ def summary_text(snapshot, rows):
         shown += 1
     if shown < len(grouped):
         lines.append(f'Ещё дат с изменениями: {len(grouped) - shown}; все — в таблице.')
-    lines.append('Числа перечислены в порядке времени выезда; «—» означает нет данных.')
-    lines += ['Изменение остатка не равно точным продажам: возможны добавления мест и отмены.',
-              'Отсутствующая дата — неизвестный остаток, не ноль.', REPORT_URL]
+    lines.append(REPORT_URL)
     return '\n'.join(lines)
 
 

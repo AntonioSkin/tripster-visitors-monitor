@@ -77,8 +77,6 @@ def run():
     save_json(DIRECTORY/'manual_latest.json', dict(report, path=str(root.relative_to(DIRECTORY))))
     url = f"https://github.com/AntonioSkin/tripster-visitors-monitor/blob/main/data/calendar_history/{TOUR['id']}/manual/{run_id}/comparison.csv"
     lines = ['Задача 3 — внеплановый замер', experience_label(TOUR),
-             f"Было: {previous['checked_at']}", f"Сейчас: {snapshot['checked_at']} (Алматы)",
-             f"Проверено выездов: {len(snapshot['slots'])}, до {snapshot['date_to']}.",
              f'Уменьшение: {decreased}; увеличение: {increased}; новых выездов: {new}; отсутствуют: {missing}.']
     for detail in details:
         if len('\n'.join(lines))+len(detail)>3000:
@@ -86,8 +84,7 @@ def run():
         lines.append(detail)
     if not details:
         lines.append('Изменений нет.')
-    lines += ['Числа идут по времени выезда. «—» — неизвестно, не ноль.',
-              'Это изменение остатков, а не точные продажи. Ежедневный замер сохранён отдельно.',url]
+    lines.append(url)
     text='\n'.join(lines)
     write_text(root/'report.txt', text+'\n')
     send_message(token,chat,text)
