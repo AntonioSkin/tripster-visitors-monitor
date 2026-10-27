@@ -40,7 +40,7 @@ def merge_rows(by_tour, day):
 
 def save_table(path, rows):
     out=io.StringIO(); writer=csv.writer(out)
-    writer.writerow(['Дата замера','Дата выезда','Начальный остаток','Остаток','Чистое уменьшение за сутки','Чистое уменьшение с начала'])
+    writer.writerow(['Дата замера','Дата выезда','Начальный остаток','Остаток','Чистое уменьшение с прошлого замера','Чистое уменьшение с начала'])
     for row in rows:
         writer.writerow([row[k] if row[k] is not None else '—' for k in ('observed','departure','initial','remaining','daily','total')])
     write_text(path,'\ufeff'+out.getvalue())
@@ -89,7 +89,7 @@ def report_text(current):
             lines.append(f'Всего — {action} {abs(total)} {places_word(abs(total))}')
         lines.append('')
     if not dates:
-        lines.append('Изменений за сутки нет.' if any(
+        lines.append('Изменений с прошлого замера нет.' if any(
             r['daily'] is not None for rows in current.values() for r in rows
         ) else 'Начальные остатки зафиксированы.')
         lines.append('')
@@ -99,15 +99,58 @@ def report_text(current):
     return '\n'.join(lines)
 
 
+def observation_id(now):
+    now = now.astimezone(TZ)
+    if now.hour < 11:
+        return None
+    return now.date().isoformat() + ('T20:00' if now.hour >= 20 else 'T11:00')
+
+
+def due_observation(now, directory=DIRECTORY):
+    observation = observation_id(now)
+    if observation is None:
+        return None
+    if (directory / 'telegram' / f'{observation}.json').exists():
+        return None
+    # The existing daily report counts as the morning report on migration day.
+    if observation.endswith('T11:00') and (directory / 'telegram' / f'{observation[:10]}.json').exists():
+        return None
+    return observation
+
+
+def interval_rows(snapshots):
+    baselines, previous, rows = {}, {}, []
+    for snapshot in sorted(snapshots, key=lambda s: s.get('checked_at', s['date_from'])):
+        day = snapshot['date_from']
+        observed = snapshot.get('observation_id', day)
+        current = {s['key']: s for s in snapshot['slots']}
+        for key, slot in current.items():
+            baselines.setdefault(key, (observed, slot['available']))
+        for key in sorted(baselines):
+            if key[:10] < day:
+                continue
+            first_seen, initial = baselines[key]
+            slot, old = current.get(key), previous.get(key)
+            remaining = slot['available'] if slot else None
+            rows.append({
+                'observed': observed, 'departure': key[:10], 'time': key[11:],
+                'first_seen': first_seen, 'initial': initial, 'remaining': remaining,
+                'daily_decrease': old['available'] - remaining if old and slot else None,
+                'total_decrease': initial - remaining if slot else None,
+                'status': 'observed' if slot else 'not_published',
+            })
+        previous = current
+    return rows
+
+
 def run():
     now = datetime.now(TZ)
     day = now.date().isoformat()
-    if os.environ.get('GITHUB_EVENT_NAME') == 'schedule' and now.hour < 8:
+    observation = due_observation(now)
+    if observation is None:
+        print('Время замера ещё не наступило или отчёт уже отправлен.')
         return
-    receipt = DIRECTORY / 'telegram' / f'{day}.json'
-    if receipt.exists():
-        print('Общий отчёт уже отправлен.')
-        return
+    receipt = DIRECTORY / 'telegram' / f'{observation}.json'
     token, chat = os.environ['TELEGRAM_BOT_TOKEN'], os.environ['TELEGRAM_CHAT_ID']
     current, failed = {}, []
     for group in GROUPS:
@@ -118,15 +161,17 @@ def run():
             directory = (ROOT / 'data/calendar_history' / str(tour['id'])
                          if group['key'] == 'yulia'
                          else group_directory / 'tours' / str(tour['id']))
-            path = directory / 'daily' / f'{day}.json'
+            path = directory / 'measurements' / f'{observation}.json'
             try:
                 if not path.exists():
                     snapshot = collect(tour, full_calendar=True)
                     if snapshot['date_from'] != day:
                         raise ValueError('Дата замера изменилась')
+                    snapshot['observation_id'] = observation
                     save_json(path, snapshot)
                 snapshots = [json.loads(p.read_text()) for p in sorted((directory / 'daily').glob('*.json'))]
-                rows = build_rows(snapshots)
+                snapshots += [json.loads(p.read_text()) for p in sorted((directory / 'measurements').glob('*.json'))]
+                rows = interval_rows(snapshots)
                 all_rows.append(rows)
                 write_csv(directory / 'history.csv', rows)
                 latest = {(r['departure'], r['time']): r for r in rows}
@@ -141,7 +186,7 @@ def run():
         latest = {r['departure']: r for r in history}
         save_table(group_directory / 'history.csv', history)
         save_table(group_directory / 'summary.csv', [latest[k] for k in sorted(latest)])
-        current[group['key']] = merge_rows(all_rows, day)
+        current[group['key']] = merge_rows(all_rows, observation)
     if failed:
         save_json(DIRECTORY / 'status.json', {'ok': False, 'failed': failed, 'checked_at': now.isoformat()})
         raise RuntimeError('Неполный общий сбор; отправка при следующем запуске')
@@ -152,7 +197,7 @@ def run():
                 'Все изменения по датам — в полном отчёте:\n'
                 + URL.replace('/yulia/summary.csv', '/joint/latest.txt'))
     send_message(token, chat, text)
-    save_json(receipt, {'sent_at': datetime.now(TZ).isoformat(),
+    save_json(receipt, {'sent_at': datetime.now(TZ).isoformat(), 'observation_id': observation,
                        'tours': [t['id'] for g in GROUPS for t in g['tours']]})
     save_json(DIRECTORY / 'status.json', {'ok': True, 'checked_at': datetime.now(TZ).isoformat(),
                                         'dates': {key: len(rows) for key, rows in current.items()}})

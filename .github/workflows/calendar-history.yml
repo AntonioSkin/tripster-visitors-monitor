@@ -1,7 +1,8 @@
-name: Daily full calendar history
+name: Twice-daily full calendar history
 on:
   schedule:
-    - cron: '19 * * * *'
+    - cron: '0 6,15 * * *'
+    - cron: '20,40 6,7,15,16 * * *'
   workflow_dispatch:
   push:
     branches: [main]
@@ -30,9 +31,9 @@ jobs:
           python - <<'PY'
           import os
           from datetime import datetime
-          from calendar_history.monitor import ROOT, TOURS, TZ
+          from calendar_history.combined import due_observation, TZ
           now = datetime.now(TZ)
-          allowed = (os.environ['GITHUB_EVENT_NAME'] != 'schedule' or now.hour >= 8) and not (ROOT / 'data/calendar_history/joint/telegram' / f'{now.date()}.json').exists()
+          allowed = due_observation(now) is not None
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f'run={str(allowed).lower()}\n')
           PY
