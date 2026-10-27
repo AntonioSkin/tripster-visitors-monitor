@@ -25,12 +25,14 @@ def merge_rows(by_tour, day):
     for departure in days:
         groups = [sorted([r for r in rows if r['departure'] == departure], key=lambda r:r['time']) for rows in selected]
         flat = [r for g in groups for r in g]
-        deltas = [r['daily_decrease'] for r in flat]
+        # Compare matching times only. Removed times are closed, not sold;
+        # newly published times have no previous count and do not hide other sales.
+        deltas = [r['daily_decrease'] for r in flat if r['daily_decrease'] is not None]
         totals = [r['total_decrease'] for r in flat]
         result.append({'observed':day, 'departure':departure,
             'initial':format_values([[r['initial'] for r in g] for g in groups]),
             'remaining':format_values([[r['remaining'] for r in g] for g in groups]),
-            'daily':sum(deltas) if deltas and all(v is not None for v in deltas) else None,
+            'daily':sum(deltas) if deltas else None,
             'total':sum(totals) if totals and all(v is not None for v in totals) else None,
             'changed':any(v is not None and v != 0 for v in deltas)})
     return result
