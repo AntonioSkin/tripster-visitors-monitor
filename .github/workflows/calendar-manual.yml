@@ -1,0 +1,44 @@
+name: Manual calendar comparison
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['calendar_history/manual-request.txt']
+permissions:
+  contents: write
+concurrency:
+  group: tripster-visitors
+  cancel-in-progress: false
+jobs:
+  history:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test history rules
+        run: python -m unittest calendar_history.test_monitor seats.test_monitor -v
+      - name: Install browser
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+      - name: Snapshot full calendar and send daily summary
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python -m calendar_history.manual
+      - name: Save immutable snapshots and tables
+        if: always()
+        run: |
+          if [ ! -d data/calendar_history ]; then exit 0; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data/calendar_history
+          if ! git diff --cached --quiet; then
+            git commit -m 'Save manual calendar comparison'
+            git push
+          fi
