@@ -30,9 +30,9 @@ jobs:
           python - <<'PY'
           import os
           from datetime import datetime
-          from calendar_history.monitor import DIRECTORY, TZ
+          from calendar_history.monitor import ROOT, TOURS, TZ
           now = datetime.now(TZ)
-          allowed = (os.environ['GITHUB_EVENT_NAME'] != 'schedule' or now.hour >= 8) and not (DIRECTORY / 'telegram' / f'{now.date()}.json').exists()
+          allowed = (os.environ['GITHUB_EVENT_NAME'] != 'schedule' or now.hour >= 8) and any(not (ROOT / 'data/calendar_history' / str(t['id']) / 'telegram' / f'{now.date()}.json').exists() for t in TOURS)
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f'run={str(allowed).lower()}\n')
           PY

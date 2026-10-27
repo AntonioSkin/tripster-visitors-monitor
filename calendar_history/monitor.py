@@ -9,9 +9,27 @@ from monitor import ROOT, write_text
 from seats.monitor import collect, TZ, save_json, experience_label
 from telegram_report import send_message
 
-TOUR = {'id': 51584, 'title': 'Озёра Каинды и Кольсай, Черный и Чарынский каньоны — все сокровища Алматы', 'guide': 'Антон'}
-DIRECTORY = ROOT / 'data/calendar_history/51584'
-REPORT_URL = 'https://github.com/AntonioSkin/tripster-visitors-monitor/blob/main/data/calendar_history/51584/summary.csv'
+TOURS = [
+    {'id': 51192, 'title': 'Всё включено: магия Чёрного и Чарынского каньонов, экзотика озёр Кольсай и Каинды', 'guide': 'Юлия'},
+    {'id': 96862, 'title': 'Комфорт-маршрут по озёрам Каинды, Кольсай и Чарынскому каньону', 'guide': 'Юлия'},
+    {'id': 53900, 'title': 'Чарынский и Лунный каньоны + озеро Кольсай: групповое фотопутешествие по окрестностям Алматы', 'guide': 'Юлия'},
+]
+TOUR = next(t for t in TOURS if t['id'] == int(os.environ.get('CALENDAR_TOUR_ID', TOURS[0]['id'])))
+DIRECTORY = ROOT / f"data/calendar_history/{TOUR['id']}"
+REPORT_URL = f"https://github.com/AntonioSkin/tripster-visitors-monitor/blob/main/data/calendar_history/{TOUR['id']}/summary.csv"
+
+
+def run_all(module):
+    # Separate processes keep paths, receipts and baselines isolated by tour.
+    import subprocess
+    failed = []
+    for tour in TOURS:
+        env = dict(os.environ, CALENDAR_TOUR_ID=str(tour['id']))
+        result = subprocess.run([sys.executable, '-m', module, '--single'], env=env)
+        if result.returncode:
+            failed.append(tour['id'])
+    if failed:
+        raise RuntimeError(f"Не завершены экскурсии: {failed}")
 
 
 def build_rows(snapshots):
@@ -144,7 +162,10 @@ def run(directory=DIRECTORY, now=None, collect_fn=None, send_fn=send_message):
 
 if __name__ == '__main__':
     try:
-        run()
+        if '--single' in sys.argv:
+            run()
+        else:
+            run_all('calendar_history.monitor')
     except Exception:
         print('Задача 3 не завершена; см. status.json и журнал календаря.')
         sys.exit(1)

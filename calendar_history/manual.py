@@ -5,7 +5,7 @@ import json
 import os
 import sys
 from datetime import datetime
-from calendar_history.monitor import TOUR, DIRECTORY, group_rows
+from calendar_history.monitor import TOUR, DIRECTORY, group_rows, run_all
 from seats.monitor import collect, save_json, TZ, experience_label
 from monitor import write_text
 from telegram_report import send_message
@@ -94,7 +94,10 @@ def run():
 
 if __name__ == '__main__':
     try:
-        run()
+        if '--single' in sys.argv:
+            run()
+        else:
+            run_all('calendar_history.manual')
     except Exception:
         print('Внеплановый замер или отправка не завершены.')
         sys.exit(1)
