@@ -9,9 +9,9 @@ from monitor import ROOT, write_text
 from seats.monitor import collect, TZ, save_json, experience_label
 from telegram_report import send_message
 
-TOUR = {'id': 57434, 'title': 'Природа Казахстана: 5 лучших мест за 1 день из Алматы', 'guide': 'Дмитрий'}
-DIRECTORY = ROOT / 'data/calendar_history/57434'
-REPORT_URL = 'https://github.com/AntonioSkin/tripster-visitors-monitor/blob/main/data/calendar_history/57434/summary.csv'
+TOUR = {'id': 51584, 'title': 'Озёра Каинды и Кольсай, Черный и Чарынский каньоны — все сокровища Алматы', 'guide': 'Антон'}
+DIRECTORY = ROOT / 'data/calendar_history/51584'
+REPORT_URL = 'https://github.com/AntonioSkin/tripster-visitors-monitor/blob/main/data/calendar_history/51584/summary.csv'
 
 
 def build_rows(snapshots):
