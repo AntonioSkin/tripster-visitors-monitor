@@ -25,6 +25,10 @@ jobs:
           python-version: '3.12'
       - name: Test currency rules
         run: python -m unittest fx.test_monitor -v
+      - name: Install browser
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
       - name: Collect quote and notify on change
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}

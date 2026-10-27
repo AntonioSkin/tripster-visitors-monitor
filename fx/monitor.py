@@ -52,17 +52,26 @@ def changed(before, after):
 
 
 def collect():
-    for attempt in range(3):
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
         try:
-            request = Request(URL, headers={'User-Agent': 'Mozilla/5.0', 'Cache-Control': 'no-cache'})
-            with urlopen(request, timeout=45) as response:
-                quote = parse_quote(response.read().decode('utf-8'))
-            return {'rate': quote, 'checked_at': datetime.now(TZ).isoformat(), 'source': URL}
-        except Exception as exc:
-            print(f'Quote attempt {attempt + 1}/3: {type(exc).__name__}')
-            if attempt == 2:
-                raise RuntimeError('Не удалось получить курс Investing.com') from None
-            time.sleep(5)
+            page = browser.new_page(locale='en-US')
+            for attempt in range(3):
+                try:
+                    response = page.goto(URL, wait_until='domcontentloaded', timeout=45000)
+                    if response and response.status >= 400:
+                        raise ValueError(f'HTTP {response.status}')
+                    page.locator('[data-test="instrument-price-last"]').wait_for(timeout=30000)
+                    quote = parse_quote(page.content())
+                    return {'rate': quote, 'checked_at': datetime.now(TZ).isoformat(), 'source': URL}
+                except Exception as exc:
+                    print(f'Quote attempt {attempt + 1}/3: {str(exc) if type(exc) is ValueError else type(exc).__name__}')
+                    if attempt == 2:
+                        raise RuntimeError('Не удалось получить курс Investing.com') from None
+                    time.sleep(5)
+        finally:
+            browser.close()
 
 
 def observation(now):
