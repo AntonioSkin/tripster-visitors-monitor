@@ -89,10 +89,13 @@ def report_text(current):
             lines.append(f'Всего — {action} {abs(total)} {places_word(abs(total))}')
         lines.append('')
     if not dates:
-        lines.append('Изменений с прошлого замера нет.' if any(
-            r['daily'] is not None for rows in current.values() for r in rows
-        ) else 'Начальные остатки зафиксированы.')
-        lines.append('')
+        compared = [group['name'] for group in GROUPS if any(
+            r['daily'] is not None for r in current[group['key']]
+        )]
+        if len(compared) == len(GROUPS):
+            return 'Задача 3 — проверка выполнена.\nПо Юлии и Дмитрию изменений нет.'
+        return ('Задача 3 — проверка выполнена.\n'
+                'Остатки сохранены. Пока недостаточно данных для сравнения по обоим гидам.')
     lines.append('Все актуальные данные — в таблицах.')
     for group in GROUPS:
         lines.extend([group['name'], group_url(group)])
