@@ -165,7 +165,8 @@ if __name__ == '__main__':
         if '--single' in sys.argv:
             run()
         else:
-            run_all('calendar_history.monitor')
+            from calendar_history.combined import run as run_combined
+            run_combined()
     except Exception:
         print('Задача 3 не завершена; см. status.json и журнал календаря.')
         sys.exit(1)

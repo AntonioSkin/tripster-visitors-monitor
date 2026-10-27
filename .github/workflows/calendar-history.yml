@@ -32,7 +32,7 @@ jobs:
           from datetime import datetime
           from calendar_history.monitor import ROOT, TOURS, TZ
           now = datetime.now(TZ)
-          allowed = (os.environ['GITHUB_EVENT_NAME'] != 'schedule' or now.hour >= 8) and any(not (ROOT / 'data/calendar_history' / str(t['id']) / 'telegram' / f'{now.date()}.json').exists() for t in TOURS)
+          allowed = (os.environ['GITHUB_EVENT_NAME'] != 'schedule' or now.hour >= 8) and not (ROOT / 'data/calendar_history/yulia/telegram' / f'{now.date()}.json').exists()
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f'run={str(allowed).lower()}\n')
           PY
