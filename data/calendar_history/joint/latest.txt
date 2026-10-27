@@ -1,0 +1,9 @@
+Задача 3 — остатки мест
+
+Начальные остатки зафиксированы.
+
+Все актуальные данные — в таблицах.
+Юлия
+https://github.com/AntonioSkin/tripster-visitors-monitor/blob/main/data/calendar_history/yulia/summary.csv
+Дмитрий
+https://github.com/AntonioSkin/tripster-visitors-monitor/blob/main/data/calendar_history/dmitry/summary.csv
