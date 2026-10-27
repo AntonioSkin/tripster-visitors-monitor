@@ -9,7 +9,7 @@ from seats.monitor import collect, save_json
 from monitor import write_text
 from telegram_report import send_message
 
-DIRECTORY = ROOT / 'data/calendar_history/yulia'
+DIRECTORY = ROOT / 'data/calendar_history/joint'
 URL = 'https://github.com/AntonioSkin/tripster-visitors-monitor/blob/main/data/calendar_history/yulia/summary.csv'
 
 
@@ -52,62 +52,107 @@ def places_word(count):
     return 'место' if count % 10 == 1 else 'места' if count % 10 in (2, 3, 4) else 'мест'
 
 
+GROUPS = [
+    {'key': 'yulia', 'name': 'Юлия', 'tours': TOURS},
+    {'key': 'dmitry', 'name': 'Дмитрий', 'tours': [
+        {'id': value, 'guide': 'Дмитрий'} for value in (57434, 85543, 55575, 54971)
+    ]},
+]
+
+
+def group_url(group):
+    return URL.replace('/yulia/', '/' + group['key'] + '/')
+
+
 def report_text(current):
-    lines=['Задача 3 — остатки мест','Гид: Юлия','51192 / 96862 / 53900','']
-    changed=[r for r in current if r['daily'] is not None and r['daily'] != 0]
-    if not changed:
-        lines.append('Изменений за сутки нет.' if any(r['daily'] is not None for r in current) else 'Начальные остатки зафиксированы.')
-    for row in changed:
-        delta=row['daily']
-        count=abs(delta)
-        action='продано' if delta > 0 else 'добавлено'
-        date=datetime.fromisoformat(row['departure']).strftime('%d.%m.%Y')
-        line=f'{date}: {action} {count} {places_word(count)}'
-        if len('\n'.join(lines))+len(line)>3400:
-            break
-        lines.append(line)
-    lines.extend(['','Все актуальные данные — в таблице.',URL])
+    lines = ['Задача 3 — остатки мест', '']
+    dates = sorted({r['departure'] for rows in current.values() for r in rows
+                    if r['daily'] is not None and r['daily'] != 0})
+    for departure in dates:
+        lines.append(datetime.fromisoformat(departure).strftime('%d.%m.%Y') + ':')
+        values = []
+        for group in GROUPS:
+            row = next((r for r in current[group['key']] if r['departure'] == departure), None)
+            delta = row['daily'] if row else None
+            if delta is None:
+                lines.append(group['name'] + ' — нет сравнения')
+                continue
+            values.append(delta)
+            if delta == 0:
+                lines.append(group['name'] + ' — без изменений')
+            else:
+                action = 'продано' if delta > 0 else 'добавлено'
+                lines.append(f"{group['name']} — {action} {abs(delta)} {places_word(abs(delta))}")
+        if len(values) == len(GROUPS):
+            total = sum(values)
+            action = 'продано' if total >= 0 else 'добавлено'
+            lines.append(f'Всего — {action} {abs(total)} {places_word(abs(total))}')
+        lines.append('')
+    if not dates:
+        lines.append('Изменений за сутки нет.' if any(
+            r['daily'] is not None for rows in current.values() for r in rows
+        ) else 'Начальные остатки зафиксированы.')
+        lines.append('')
+    lines.append('Все актуальные данные — в таблицах.')
+    for group in GROUPS:
+        lines.extend([group['name'], group_url(group)])
     return '\n'.join(lines)
 
 
 def run():
-    now=datetime.now(TZ); day=now.date().isoformat()
-    if os.environ.get('GITHUB_EVENT_NAME')=='schedule' and now.hour<8:
+    now = datetime.now(TZ)
+    day = now.date().isoformat()
+    if os.environ.get('GITHUB_EVENT_NAME') == 'schedule' and now.hour < 8:
         return
-    receipt=DIRECTORY/'telegram'/f'{day}.json'
+    receipt = DIRECTORY / 'telegram' / f'{day}.json'
     if receipt.exists():
-        print('Общий отчёт Юлии уже отправлен.'); return
-    token,chat=os.environ['TELEGRAM_BOT_TOKEN'],os.environ['TELEGRAM_CHAT_ID']
-    all_rows=[]; failed=[]
-    for tour in TOURS:
-        directory=ROOT/'data/calendar_history'/str(tour['id'])
-        path=directory/'daily'/f'{day}.json'
-        try:
-            if not path.exists():
-                snapshot=collect(tour,full_calendar=True)
-                if snapshot['date_from']!=day:
-                    raise ValueError('Дата замера изменилась')
-                save_json(path,snapshot)
-            snapshots=[json.loads(p.read_text()) for p in sorted((directory/'daily').glob('*.json'))]
-            rows=build_rows(snapshots); all_rows.append(rows)
-            write_csv(directory/'history.csv',rows)
-            latest={}
-            for r in rows: latest[(r['departure'],r['time'])]=r
-            write_csv(directory/'summary.csv',list(latest.values()))
-        except Exception:
-            failed.append(tour['id'])
+        print('Общий отчёт уже отправлен.')
+        return
+    token, chat = os.environ['TELEGRAM_BOT_TOKEN'], os.environ['TELEGRAM_CHAT_ID']
+    current, failed = {}, []
+    for group in GROUPS:
+        group_directory = ROOT / 'data/calendar_history' / group['key']
+        all_rows = []
+        for tour in group['tours']:
+            # Dmitry starts fresh; do not reuse the archived 57434 campaign.
+            directory = (ROOT / 'data/calendar_history' / str(tour['id'])
+                         if group['key'] == 'yulia'
+                         else group_directory / 'tours' / str(tour['id']))
+            path = directory / 'daily' / f'{day}.json'
+            try:
+                if not path.exists():
+                    snapshot = collect(tour, full_calendar=True)
+                    if snapshot['date_from'] != day:
+                        raise ValueError('Дата замера изменилась')
+                    save_json(path, snapshot)
+                snapshots = [json.loads(p.read_text()) for p in sorted((directory / 'daily').glob('*.json'))]
+                rows = build_rows(snapshots)
+                all_rows.append(rows)
+                write_csv(directory / 'history.csv', rows)
+                latest = {(r['departure'], r['time']): r for r in rows}
+                write_csv(directory / 'summary.csv', list(latest.values()))
+            except Exception:
+                failed.append(tour['id'])
+        if len(all_rows) != len(group['tours']):
+            continue
+        history = []
+        for observed in sorted({r['observed'] for rows in all_rows for r in rows}):
+            history.extend(merge_rows(all_rows, observed))
+        latest = {r['departure']: r for r in history}
+        save_table(group_directory / 'history.csv', history)
+        save_table(group_directory / 'summary.csv', [latest[k] for k in sorted(latest)])
+        current[group['key']] = merge_rows(all_rows, day)
     if failed:
-        save_json(DIRECTORY/'status.json',{'ok':False,'failed':failed,'checked_at':now.isoformat()})
+        save_json(DIRECTORY / 'status.json', {'ok': False, 'failed': failed, 'checked_at': now.isoformat()})
         raise RuntimeError('Неполный общий сбор; отправка при следующем запуске')
-    history=[]
-    for observed in sorted({r['observed'] for rows in all_rows for r in rows}):
-        history.extend(merge_rows(all_rows,observed))
-    latest={r['departure']:r for r in history}
-    save_table(DIRECTORY/'history.csv',history)
-    save_table(DIRECTORY/'summary.csv',[latest[k] for k in sorted(latest)])
-    current=merge_rows(all_rows,day)
-    text=report_text(current)
-    write_text(DIRECTORY/'latest.txt',text+'\n')
-    send_message(token,chat,text)
-    save_json(receipt,{'sent_at':datetime.now(TZ).isoformat(),'tours':[t['id'] for t in TOURS]})
-    save_json(DIRECTORY/'status.json',{'ok':True,'checked_at':datetime.now(TZ).isoformat(),'dates':len(current)})
+    text = report_text(current)
+    write_text(DIRECTORY / 'latest.txt', text + '\n')
+    if len(text) > 4000:
+        text = ('Задача 3 — остатки мест\nЮлия и Дмитрий\n\n'
+                'Все изменения по датам — в полном отчёте:\n'
+                + URL.replace('/yulia/summary.csv', '/joint/latest.txt'))
+    send_message(token, chat, text)
+    save_json(receipt, {'sent_at': datetime.now(TZ).isoformat(),
+                       'tours': [t['id'] for g in GROUPS for t in g['tours']]})
+    save_json(DIRECTORY / 'status.json', {'ok': True, 'checked_at': datetime.now(TZ).isoformat(),
+                                        'dates': {key: len(rows) for key, rows in current.items()}})

@@ -23,7 +23,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Test history rules
-        run: python -m unittest calendar_history.test_monitor seats.test_monitor -v
+        run: python -m unittest calendar_history.test_monitor calendar_history.test_combined seats.test_monitor -v
       - name: Check daily gate
         id: gate
         run: |
@@ -32,7 +32,7 @@ jobs:
           from datetime import datetime
           from calendar_history.monitor import ROOT, TOURS, TZ
           now = datetime.now(TZ)
-          allowed = (os.environ['GITHUB_EVENT_NAME'] != 'schedule' or now.hour >= 8) and not (ROOT / 'data/calendar_history/yulia/telegram' / f'{now.date()}.json').exists()
+          allowed = (os.environ['GITHUB_EVENT_NAME'] != 'schedule' or now.hour >= 8) and not (ROOT / 'data/calendar_history/joint/telegram' / f'{now.date()}.json').exists()
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f'run={str(allowed).lower()}\n')
           PY
