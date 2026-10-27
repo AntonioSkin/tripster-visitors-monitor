@@ -1,0 +1,33 @@
+name: Monitoring deadlines
+on:
+  schedule:
+    - cron: '5,20,35,50 * * * *'
+  workflow_run:
+    workflows: ['Daily visitors', 'Tripster seat alerts', 'Twice-daily full calendar history']
+    types: [completed]
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['health/**', '.github/workflows/health.yml']
+permissions:
+  contents: write
+concurrency:
+  group: monitoring-deadlines
+  cancel-in-progress: false
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m unittest health.test_check -v
+      - run: python -m health.check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
