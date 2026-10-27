@@ -1,4 +1,4 @@
-"""Twice-daily RUB/KZT quote from Investing.com."""
+"""Twice-daily RUB/KZT quote from Wise."""
 import json
 import os
 import re
@@ -10,41 +10,23 @@ from urllib.request import Request, urlopen
 from monitor import ROOT, TZ, write_text
 from telegram_report import send_message
 
-URL = 'https://www.investing.com/currencies/rub-kzt'
+URL = 'https://wise.com/gb/currency-converter/rub-to-kzt-rate'
 DIRECTORY = ROOT / 'data/fx'
 ENABLED_FROM = '2026-10-27T20:00'
 
 
-class QuoteParser(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self.active = False
-        self.values = []
-
-    def handle_starttag(self, tag, attrs):
-        if dict(attrs).get('data-test') == 'instrument-price-last':
-            self.active = True
-
-    def handle_data(self, data):
-        if self.active:
-            self.values.append(data.strip())
-
-    def handle_endtag(self, tag):
-        self.active = False
-
-
 def parse_quote(html):
-    if 'RUB/KZT' not in html:
-        raise ValueError('Не подтверждена валютная пара RUB/KZT')
-    parser = QuoteParser()
-    parser.feed(html)
-    values = {v.replace(',', '') for v in parser.values if v}
-    if len(values) != 1:
-        raise ValueError('Нет однозначного текущего курса Investing.com')
-    value = values.pop()
-    if not re.fullmatch(r'\d+\.\d+', value) or Decimal(value) <= 0:
-        raise ValueError('Некорректный курс')
-    return value
+    match = re.search(r'<script[^>]+id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.S)
+    if not match:
+        raise ValueError('Нет данных курса Wise')
+    data = json.loads(match.group(1), parse_float=Decimal)
+    rate = data['props']['pageProps']['model']['rate']
+    if rate['sourceCurrency']['code'] != 'RUB' or rate['targetCurrency']['code'] != 'KZT':
+        raise ValueError('Неверная валютная пара')
+    value = Decimal(str(rate['value']))
+    if not value.is_finite() or value <= 0:
+        raise ValueError('Некорректный курс Wise')
+    return str(value)
 
 
 def changed(before, after):
@@ -52,26 +34,17 @@ def changed(before, after):
 
 
 def collect():
-    from playwright.sync_api import sync_playwright
-    with sync_playwright() as p:
-        browser = p.chromium.launch()
+    for attempt in range(3):
         try:
-            page = browser.new_page(locale='en-US')
-            for attempt in range(3):
-                try:
-                    response = page.goto(URL, wait_until='domcontentloaded', timeout=45000)
-                    if response and response.status >= 400:
-                        raise ValueError(f'HTTP {response.status}')
-                    page.locator('[data-test="instrument-price-last"]').wait_for(timeout=30000)
-                    quote = parse_quote(page.content())
-                    return {'rate': quote, 'checked_at': datetime.now(TZ).isoformat(), 'source': URL}
-                except Exception as exc:
-                    print(f'Quote attempt {attempt + 1}/3: {str(exc) if type(exc) is ValueError else type(exc).__name__}')
-                    if attempt == 2:
-                        raise RuntimeError('Не удалось получить курс Investing.com') from None
-                    time.sleep(5)
-        finally:
-            browser.close()
+            request = Request(URL, headers={'User-Agent': 'Mozilla/5.0', 'Cache-Control': 'no-cache'})
+            with urlopen(request, timeout=45) as response:
+                quote = parse_quote(response.read().decode('utf-8'))
+            return {'rate': quote, 'checked_at': datetime.now(TZ).isoformat(), 'source': URL}
+        except Exception as exc:
+            print(f'Quote attempt {attempt + 1}/3: {type(exc).__name__}')
+            if attempt == 2:
+                raise RuntimeError('Не удалось получить курс Wise') from None
+            time.sleep(5)
 
 
 def observation(now):
@@ -99,7 +72,7 @@ def run():
         before = state.get('rate')
         alert = before is not None and changed(before, snapshot['rate'])
         if alert:
-            text = ('Задача 4 — изменение курса RUB/KZT\n'
+            text = ('Задача 4 — изменение курса RUB/KZT (Wise)\n'
                     + before.replace('.', ',') + ' → ' + snapshot['rate'].replace('.', ',')
                     + ' ₸ за 1 ₽\n' + URL)
             send_message(os.environ['TELEGRAM_BOT_TOKEN'], os.environ['TELEGRAM_CHAT_ID'], text)

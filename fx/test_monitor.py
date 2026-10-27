@@ -8,8 +8,14 @@ class FxTests(unittest.TestCase):
         for a,b in [('5.65','5.69'),('5.60','5.6999'),('5.65','5.65')]:
             self.assertFalse(changed(a,b))
     def test_main_quote_only(self):
-        self.assertEqual(parse_quote('RUB/KZT <div data-test="instrument-price-last">5.6577</div><div>5.5254</div>'),'5.6577')
+        import json
+        def page(source='RUB', target='KZT'):
+            data = {'props': {'pageProps': {'model': {'rate': {
+                'value': 5.66629, 'sourceCurrency': {'code': source}, 'targetCurrency': {'code': target}
+            }}}}}
+            return '<script id="__NEXT_DATA__" type="application/json">' + json.dumps(data) + '</script>'
+        self.assertEqual(parse_quote(page()), '5.66629')
         with self.assertRaises(ValueError):
-            parse_quote('RUB/KZT <div>5.6577</div>')
+            parse_quote(page('KZT','RUB'))
         with self.assertRaises(ValueError):
             parse_quote('Access denied')
