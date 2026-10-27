@@ -41,6 +41,18 @@ def assess(root, now):
             checks[f'3:{obs}'] = ('Задача 3 — Юлия и Дмитрий', bool(receipt),
                 f'{ds}, замер {hour}:00, попытки до {deadline}:00',
                 'доставка в Telegram' if complete else 'сбор данных')
+    from fx.monitor import ENABLED_FROM
+    for offset in (1, 0):
+        day = now.date() - timedelta(days=offset)
+        for hour, deadline in ((11, 13), (20, 22)):
+            obs = f'{day.isoformat()}T{hour}:00'
+            if obs < ENABLED_FROM or now < datetime.combine(day, datetime.min.time(), TZ).replace(hour=deadline):
+                continue
+            complete = bool(read(root, f'data/fx/completed/{obs}.json'))
+            collected = (root / f'data/fx/measurements/{obs}.json').exists()
+            checks[f'4:{obs}'] = ('Задача 4 — курс RUB/KZT', complete,
+                f'{day}, замер {hour}:00, попытки до {deadline}:00',
+                'доставка в Telegram' if collected else 'сбор данных')
     for tour in (51584,51691,83542,103689):
         path = 'data/seats' + ('' if tour == 51584 else f'/{tour}')
         state = read(root, path + '/state.json')

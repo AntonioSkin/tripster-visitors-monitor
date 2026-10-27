@@ -1,0 +1,43 @@
+name: RUB KZT monitoring
+on:
+  schedule:
+    - cron: '0 6,15 * * *'
+    - cron: '20,40 6,7,15,16 * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['fx/**', '.github/workflows/fx.yml']
+permissions:
+  contents: write
+concurrency:
+  group: tripster-visitors
+  cancel-in-progress: false
+jobs:
+  history:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test currency rules
+        run: python -m unittest fx.test_monitor -v
+      - name: Collect quote and notify on change
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python -m fx.monitor
+      - name: Save immutable snapshots and tables
+        if: always()
+        run: |
+          if [ ! -d data/fx ]; then exit 0; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data/fx
+          if ! git diff --cached --quiet; then
+            git commit -m 'Save RUB KZT observation and completion'
+            git push
+          fi
