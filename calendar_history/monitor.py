@@ -48,6 +48,9 @@ HEADERS = {'observed': 'Дата замера', 'departure': 'Дата выез�
            'status': 'Статус'}
 
 
+CSV_HEADERS = {k: v for k, v in HEADERS.items() if k not in {'time', 'first_seen', 'status'}}
+
+
 def group_rows(rows):
     """One row per observation/departure date; values follow departure time order."""
     groups = {}
@@ -67,9 +70,9 @@ def group_rows(rows):
 def write_csv(path, rows):
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(HEADERS.values())
+    writer.writerow(CSV_HEADERS.values())
     for row in group_rows(rows):
-        writer.writerow([row[k] if row[k] is not None else '' for k in HEADERS])
+        writer.writerow([row[k] if row[k] is not None else '' for k in CSV_HEADERS])
     write_text(path, '\ufeff' + buf.getvalue())
 
 
