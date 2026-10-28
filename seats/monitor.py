@@ -159,12 +159,11 @@ def run_check(collect_fn=None, send_fn=send_message, directory=DIRECTORY, experi
     try:
         snapshot = collect_fn()
     except Exception:
-        # One error notice per uninterrupted outage. Do not expose browser logs/URLs with secrets.
+        # Service alerts are delivered by Healthchecks in its separate chat.
+        # Retain the legacy error flag for completion checks, without Telegram notices.
         save_json(directory / "status.json", {"ok": False, "checked_at": datetime.now(TZ).isoformat(),
                   "message": "Не удалось прочитать полный календарь; старые остатки сохранены"})
         if not state.get("error_notified"):
-            send_fn(token, chat, f"{experience_label(experience)}\nНе удалось проверить свободные места. "
-                    "Остатки неизвестны. Повторные проверки запланированы каждые 30 минут; возможны задержки запуска.\n" + experience_url(experience))
             state["error_notified"] = True
             save_json(state_path, state)
         raise RuntimeError("Ошибка чтения календаря") from None
@@ -183,9 +182,6 @@ def run_check(collect_fn=None, send_fn=send_message, directory=DIRECTORY, experi
                 f"Период: {snapshot['date_from']} — {snapshot['date_to']} (30 календарных дней, Алматы).\n"
                 f"Порог: 0–6 мест. Проверки запланированы каждые 30 минут.\n"
                 f"Проверено выездов: {len(counts)}. {summary}\n" + experience_url(experience))
-    elif state.get("error_notified") and not low:
-        send_fn(token, chat, f"{experience_label(experience)}\nЧтение календаря восстановлено. "
-                "Новых изменений ниже порога 7 мест нет.\n" + experience_url(experience))
     state.update({"initialized": True, "error_notified": False,
                   "notified": next_notifications(snapshot, state),
                   "last_success": snapshot["checked_at"]})

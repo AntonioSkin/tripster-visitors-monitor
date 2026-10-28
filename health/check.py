@@ -86,6 +86,11 @@ def assess(root, now):
 def notifications(checks, state, now):
     result = []
     for key, (title, ok, interval, stage) in checks.items():
+        # Task 2 service alerts belong only to the separate Healthchecks chat.
+        # Keep tracking state, including old failures, without sending recovery duplicates.
+        if key.startswith('2:'):
+            state[key] = 'ok' if ok else 'failed'
+            continue
         previous = state.get(key)
         if key.endswith(':late'):
             if previous != 'failed' and state.get(key[:-5]) not in ('failed', 'ok'):

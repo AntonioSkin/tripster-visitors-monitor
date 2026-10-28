@@ -30,9 +30,17 @@ class HealthTests(unittest.TestCase):
     def test_no_duplicate_and_recovery(self):
         state = {}
         now = datetime(2026,10,27,22,tzinfo=TZ)
-        failed = {'2:51584':('Task',False,'interval','сбор данных')}
-        ok = {'2:51584':('Task',True,'interval','сбор данных')}
+        failed = {'1:2026-10-27':('Task',False,'interval','сбор данных')}
+        ok = {'1:2026-10-27':('Task',True,'interval','сбор данных')}
         self.assertEqual(len(notifications(failed,state,now)),1)
         self.assertEqual(notifications(failed,state,now),[])
         self.assertEqual(len(notifications(ok,state,now)),1)
         self.assertEqual(notifications(ok,state,now),[])
+
+    def test_task_two_service_alerts_and_legacy_recovery_are_silent(self):
+        now = datetime(2026,10,28,20,tzinfo=TZ)
+        state = {f'2:{tour}': 'failed' for tour in (51584,51691,83542,103689)}
+        for ok in (False, True, False):
+            checks = {key: ('Задача 2', ok, 'interval', 'сбор данных') for key in state}
+            self.assertEqual(notifications(checks, state, now), [])
+            self.assertTrue(all(value == ('ok' if ok else 'failed') for value in state.values()))

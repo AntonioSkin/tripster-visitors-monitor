@@ -109,6 +109,29 @@ class SeatsTests(unittest.TestCase):
             self.assertFalse((directory / "state.json").exists())
             self.assertTrue((directory / "latest.json").exists())
 
+    def test_service_outage_is_silent_but_changed_low_seats_still_notify(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ,
+                {"TELEGRAM_BOT_TOKEN": "123:test", "TELEGRAM_CHAT_ID": "456"}):
+            directory = Path(tmp)
+            snapshot = normalize(payload(6), NOW)
+            (directory / "state.json").write_text(json.dumps({
+                "initialized": True, "notified": next_notifications(snapshot, {})}))
+            sender = Mock()
+            collector = Mock(side_effect=RuntimeError("Calendar unavailable"))
+            with self.assertRaises(RuntimeError):
+                run_check(collector, sender, directory)
+            sender.assert_not_called()
+            self.assertFalse(json.loads((directory / "status.json").read_text())["ok"])
+            # Recovery without a changed seat count is also silent.
+            run_check(lambda: snapshot, sender, directory)
+            sender.assert_not_called()
+            self.assertTrue(json.loads((directory / "status.json").read_text())["ok"])
+            self.assertFalse(json.loads((directory / "state.json").read_text())["error_notified"])
+            # The useful 6 -> 5 seat notification is preserved after recovery.
+            run_check(lambda: normalize(payload(5), NOW), sender, directory)
+            sender.assert_called_once()
+            self.assertIn("свободно 5 мест", sender.call_args.args[2])
+
 
 if __name__ == "__main__":
     unittest.main()
