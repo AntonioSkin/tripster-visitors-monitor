@@ -49,6 +49,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python -m calendar_history.monitor
       - name: Save immutable snapshots and tables
+        id: save_calendar
         if: always()
         run: |
           if [ ! -d data/calendar_history ]; then exit 0; fi
@@ -59,3 +60,9 @@ jobs:
             git commit -m 'Save daily full calendar history and Telegram receipt'
             git push
           fi
+
+      - name: Confirm task 3 to external Healthchecks
+        if: ${{ always() && steps.save_calendar.outcome == 'success' }}
+        env:
+          HEALTHCHECKS_API_KEY: ${{ secrets.HEALTHCHECKS_API_KEY }}
+        run: python -m health.external 3

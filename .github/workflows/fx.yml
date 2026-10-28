@@ -31,6 +31,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python -m fx.monitor
       - name: Save immutable snapshots and tables
+        id: save_fx
         if: always()
         run: |
           if [ ! -d data/fx ]; then exit 0; fi
@@ -41,3 +42,9 @@ jobs:
             git commit -m 'Save RUB KZT observation and completion'
             git push
           fi
+
+      - name: Confirm task 4 to external Healthchecks
+        if: ${{ always() && steps.save_fx.outcome == 'success' }}
+        env:
+          HEALTHCHECKS_API_KEY: ${{ secrets.HEALTHCHECKS_API_KEY }}
+        run: python -m health.external 4

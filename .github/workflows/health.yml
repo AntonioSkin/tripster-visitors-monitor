@@ -25,9 +25,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m unittest health.test_check -v
+      - run: python -m unittest health.test_check health.test_external -v
       - run: python -m health.check
         env:
           GH_TOKEN: ${{ github.token }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+      - name: Retry delivery of verified completion signals to Healthchecks
+        if: always()
+        env:
+          HEALTHCHECKS_API_KEY: ${{ secrets.HEALTHCHECKS_API_KEY }}
+        run: python -m health.external all

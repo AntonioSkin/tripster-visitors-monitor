@@ -35,6 +35,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python -m seats.monitor
       - name: Save seat state
+        id: save_seats
         if: ${{ always() }}
         run: |
           if [ ! -d data/seats ]; then exit 0; fi
@@ -46,3 +47,9 @@ jobs:
             git commit -m "Save Tripster seat observation and alert state"
             git push
           fi
+
+      - name: Confirm task 2 to external Healthchecks
+        if: ${{ always() && steps.save_seats.outcome == 'success' }}
+        env:
+          HEALTHCHECKS_API_KEY: ${{ secrets.HEALTHCHECKS_API_KEY }}
+        run: python -m health.external 2

@@ -53,6 +53,7 @@ jobs:
           SNAPSHOT_PATH: ${{ steps.collect.outputs.snapshot }}
         run: python telegram_report.py "$SNAPSHOT_PATH"
       - name: Save observations and delivery receipt
+        id: save_visitors
         if: ${{ always() && steps.collect.outputs.snapshot != '' }}
         run: |
           git config user.name "github-actions[bot]"
@@ -62,6 +63,12 @@ jobs:
             git commit -m "Save Tripster counters and Telegram delivery receipt"
             git push
           fi
+
+      - name: Confirm task 1 to external Healthchecks
+        if: ${{ always() && steps.save_visitors.outcome == 'success' }}
+        env:
+          HEALTHCHECKS_API_KEY: ${{ secrets.HEALTHCHECKS_API_KEY }}
+        run: python -m health.external 1
 
       - name: Install seat monitor browser
         if: ${{ always() && github.event_name != 'push' }}
@@ -75,6 +82,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python -m seats.monitor
       - name: Save backup seat check
+        id: save_seats
         if: ${{ always() && github.event_name != 'push' }}
         run: |
           if [ ! -d data/seats ]; then exit 0; fi
@@ -87,6 +95,12 @@ jobs:
             git push
           fi
 
+      - name: Confirm task 2 to external Healthchecks
+        if: ${{ always() && steps.save_seats.outcome == 'success' }}
+        env:
+          HEALTHCHECKS_API_KEY: ${{ secrets.HEALTHCHECKS_API_KEY }}
+        run: python -m health.external 2
+
       - name: Backup daily calendar history
         if: ${{ always() && github.event_name != 'push' }}
         env:
@@ -94,6 +108,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python -m calendar_history.monitor
       - name: Save backup calendar history
+        id: save_calendar
         if: ${{ always() && github.event_name != 'push' }}
         run: |
           if [ ! -d data/calendar_history ]; then exit 0; fi
@@ -104,3 +119,9 @@ jobs:
             git commit -m "Save backup daily calendar history"
             git push
           fi
+
+      - name: Confirm task 3 to external Healthchecks
+        if: ${{ always() && steps.save_calendar.outcome == 'success' }}
+        env:
+          HEALTHCHECKS_API_KEY: ${{ secrets.HEALTHCHECKS_API_KEY }}
+        run: python -m health.external 3

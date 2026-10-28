@@ -77,7 +77,7 @@ def run():
                     + ' ₸ за 1 ₽\n' + URL)
             send_message(os.environ['TELEGRAM_BOT_TOKEN'], os.environ['TELEGRAM_CHAT_ID'], text)
         save(state_path, dict(snapshot, observation_id=key))
-        save(DIRECTORY / 'completed' / f'{key}.json', dict(snapshot, alert_sent=alert))
+        save(DIRECTORY / 'completed' / f'{key}.json', dict(snapshot, alert_sent=alert, completed_at=datetime.now(TZ).isoformat()))
         save(DIRECTORY / 'status.json', {'ok': True, 'observation_id': key, **snapshot})
         print(f'RUB/KZT: {snapshot["rate"]}; alert: {alert}')
     except Exception:

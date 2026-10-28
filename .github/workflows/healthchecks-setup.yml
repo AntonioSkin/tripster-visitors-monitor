@@ -1,0 +1,52 @@
+name: Configure external Healthchecks
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['health/external.py', 'health/test_external.py', '.github/workflows/healthchecks-setup.yml']
+permissions:
+  contents: read
+concurrency:
+  group: healthchecks-setup
+  cancel-in-progress: false
+jobs:
+  configure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      HEALTHCHECKS_API_KEY: ${{ secrets.HEALTHCHECKS_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify completion and retry deadline rules
+        run: python -m unittest health.test_external health.test_check -v
+      - name: Explain pending connection
+        if: env.HEALTHCHECKS_API_KEY == ''
+        run: |
+          echo '::notice::External Healthchecks is NOT ACTIVE: add HEALTHCHECKS_API_KEY in Actions Secrets, then rerun this job.'
+          echo 'External Healthchecks is **not active**. Add HEALTHCHECKS_API_KEY (Read-write project key) in Actions Secrets and rerun this job.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Create checks, assign Telegram, and arm first deadlines
+        id: configure
+        if: env.HEALTHCHECKS_API_KEY != ''
+        run: python -m health.external setup
+      - name: Confirm configured monitoring in Telegram
+        if: steps.configure.outcome == 'success'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python - <<'PY'
+          import os
+          from telegram_report import send_message
+          send_message(os.environ['TELEGRAM_BOT_TOKEN'], os.environ['TELEGRAM_CHAT_ID'],
+              'Внешний контроль Healthchecks подключён для задач 1–4.\n'
+              'При пропуске срока после повторных попыток Healthchecks отправит тревогу в свой Telegram-чат, '
+              'даже если планировщик GitHub не запустится. После восстановления придёт сообщение о восстановлении.')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
+              f.write('Healthchecks: **4 checks configured and armed**, Telegram assigned. '
+                      'Task 1 deadline 13:00; task 2 freshness 90 minutes; tasks 3–4 deadlines 13:00 and 22:00 (Shymkent).\n')
+          PY
