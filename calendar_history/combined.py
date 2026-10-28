@@ -40,10 +40,14 @@ def merge_rows(by_tour, day):
 
 def save_table(path, rows):
     out=io.StringIO(); writer=csv.writer(out)
-    writer.writerow(['Дата замера','Дата выезда','Начальный остаток','Остаток','Чистое уменьшение с прошлого замера','Чистое уменьшение с начала'])
+    writer.writerow(['Дата выезда','Начальный остаток','Остаток','Чистое уменьшение с прошлого замера','Чистое уменьшение с начала','Дата замера'])
     for row in rows:
-        writer.writerow([row[k] if row[k] is not None else '—' for k in ('observed','departure','initial','remaining','daily','total')])
+        departure = datetime.fromisoformat(row['departure']).strftime('%d-%m-%Y')
+        observed = datetime.fromisoformat(row['observed']).strftime('%d-%m-%Y')
+        writer.writerow([departure] + [row[k] if row[k] is not None else '—'
+                                      for k in ('initial','remaining','daily','total')] + [observed])
     write_text(path,'\ufeff'+out.getvalue())
+
 
 
 def places_word(count):
