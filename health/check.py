@@ -60,6 +60,26 @@ def assess(root, now):
         ok = bool(last) and now - datetime.fromisoformat(last) <= timedelta(minutes=90)
         checks[f'2:{tour}'] = (f'Задача 2 — места 0–6, экскурсия {tour}', ok,
             'последняя успешная проверка: ' + (last or 'не найдена'), 'сбор данных')
+    # Report deadline violations even when collection recovered before this check.
+    for key, check in list(checks.items()):
+        if key.startswith('2:') or not check[1]:
+            continue
+        day = datetime.fromisoformat(key[2:12]).replace(tzinfo=TZ)
+        if key.startswith('1:'):
+            receipt = read(root, f'data/telegram/{key[2:]}.json')
+            stamp, deadline = receipt.get('sent_at'), day.replace(hour=13)
+        elif key.startswith('3:'):
+            receipt = read(root, f'data/calendar_history/joint/telegram/{key[2:]}.json')
+            stamp = receipt.get('sent_at')
+            deadline = day.replace(hour=22 if 'T20:' in key else 13)
+        else:
+            receipt = read(root, f'data/fx/completed/{key[2:]}.json')
+            stamp = receipt.get('completed_at', receipt.get('checked_at'))
+            deadline = day.replace(hour=22 if 'T20:' in key else 13)
+        if stamp and datetime.fromisoformat(stamp) > deadline:
+            at = datetime.fromisoformat(stamp).astimezone(TZ).strftime('%d-%m-%Y %H:%M')
+            checks[key + ':late'] = (check[0], False,
+                check[2] + f'. Фактически завершено: {at} (Шымкент).', 'пропуск срока')
     return checks
 
 
@@ -67,7 +87,11 @@ def notifications(checks, state, now):
     result = []
     for key, (title, ok, interval, stage) in checks.items():
         previous = state.get(key)
-        if not ok and previous != 'failed':
+        if key.endswith(':late'):
+            if previous != 'failed' and state.get(key[:-5]) not in ('failed', 'ok'):
+                result.append(f'{title}\nЦелевой интервал пропущен. Задача выполнена с опозданием.\n{interval}')
+            state[key] = 'failed'
+        elif not ok and previous != 'failed':
             result.append(f'{title}\nПроблема: {stage} не завершён в целевой интервал с учётом повторных попыток.\n{interval}\nВремя — Шымкент.')
             state[key] = 'failed'
         elif ok and previous == 'failed':
