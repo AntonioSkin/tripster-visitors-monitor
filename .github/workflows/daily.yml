@@ -1,7 +1,7 @@
 name: Daily visitors
 on:
   schedule:
-    - cron: '7,27,47 * * * *' # UTC: frequent wakeups; actual Almaty time checked in Python
+    - cron: '7,27,47 * * * *'
   workflow_dispatch:
   push:
     branches: [main]
@@ -10,18 +10,21 @@ on:
       - 'excursions.json'
       - 'requirements.txt'
       - '.github/workflows/daily.yml'
-
+      - 'workflow_support/**'
+      - '.github/workflows/save-monitor-results.yml'
 permissions:
   contents: write
-
 concurrency:
-  group: tripster-visitors
+  group: tripster-task-1
+  queue: max
   cancel-in-progress: false
-
 jobs:
   collect:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    outputs:
+      changed: ${{ steps.package.outputs.changed }}
+      artifact: ${{ steps.package.outputs.artifact }}
     env:
       COLLECT_NOW: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[collect-now]') }}
     steps:
@@ -32,7 +35,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Check collection and delivery rules
-        run: python -m unittest -v
+        run: python -m unittest test_monitor test_delivery_policy test_telegram_report -v
       - name: Check daily delivery eligibility
         id: gate
         run: python delivery_policy.py
@@ -52,76 +55,24 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SNAPSHOT_PATH: ${{ steps.collect.outputs.snapshot }}
         run: python telegram_report.py "$SNAPSHOT_PATH"
-      - name: Save observations and delivery receipt
-        id: save_visitors
-        if: ${{ always() && steps.collect.outputs.snapshot != '' }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data reports
-          if ! git diff --cached --quiet; then
-            git commit -m "Save Tripster counters and Telegram delivery receipt"
-            git push
-          fi
-
-      - name: Confirm task 1 to external Healthchecks
-        if: ${{ always() && steps.save_visitors.outcome == 'success' }}
-        env:
-          HEALTHCHECKS_API_KEY: ${{ secrets.HEALTHCHECKS_API_KEY }}
-        run: python -m health.external 1
-
-      - name: Install seat monitor browser
-        if: ${{ always() && github.event_name != 'push' }}
-        run: |
-          pip install -r requirements.txt
-          python -m playwright install --with-deps chromium
-      - name: Backup seat check
-        if: ${{ always() && github.event_name != 'push' }}
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python -m seats.monitor
-      - name: Save backup seat check
-        id: save_seats
-        if: ${{ always() && github.event_name != 'push' }}
-        run: |
-          if [ ! -d data/seats ]; then exit 0; fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/seats
-          if [ -f reports/seats.md ]; then git add reports/seats.md; fi
-          if ! git diff --cached --quiet; then
-            git commit -m "Save backup seat observation and alert state"
-            git push
-          fi
-
-      - name: Confirm task 2 to external Healthchecks
-        if: ${{ always() && steps.save_seats.outcome == 'success' }}
-        env:
-          HEALTHCHECKS_API_KEY: ${{ secrets.HEALTHCHECKS_API_KEY }}
-        run: python -m health.external 2
-
-      - name: Backup daily calendar history
-        if: ${{ always() && github.event_name != 'push' }}
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python -m calendar_history.monitor
-      - name: Save backup calendar history
-        id: save_calendar
-        if: ${{ always() && github.event_name != 'push' }}
-        run: |
-          if [ ! -d data/calendar_history ]; then exit 0; fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/calendar_history
-          if ! git diff --cached --quiet; then
-            git commit -m "Save backup daily calendar history"
-            git push
-          fi
-
-      - name: Confirm task 3 to external Healthchecks
-        if: ${{ always() && steps.save_calendar.outcome == 'success' }}
-        env:
-          HEALTHCHECKS_API_KEY: ${{ secrets.HEALTHCHECKS_API_KEY }}
-        run: python -m health.external 3
+      - name: Package changed task 1 data and delivery state
+        id: package
+        if: always()
+        run: python -m workflow_support.persistence export --task 1 --directory "$RUNNER_TEMP/monitor-bundle"
+      - name: Preserve results for the serialized writer
+        if: ${{ always() && steps.package.outputs.changed == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.artifact }}
+          path: ${{ runner.temp }}/monitor-bundle/
+          if-no-files-found: error
+          retention-days: 14
+  save:
+    needs: collect
+    if: ${{ always() && needs.collect.outputs.changed == 'true' }}
+    uses: ./.github/workflows/save-monitor-results.yml
+    with:
+      task: '1'
+      artifact: ${{ needs.collect.outputs.artifact }}
+    secrets:
+      HEALTHCHECKS_API_KEY: ${{ secrets.HEALTHCHECKS_API_KEY }}

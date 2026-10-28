@@ -6,16 +6,24 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['calendar_history/**', '.github/workflows/calendar-history.yml']
+    paths:
+      - 'calendar_history/**'
+      - '.github/workflows/calendar-history.yml'
+      - 'workflow_support/**'
+      - '.github/workflows/save-monitor-results.yml'
 permissions:
   contents: write
 concurrency:
-  group: tripster-visitors
+  group: tripster-task-3
+  queue: max
   cancel-in-progress: false
 jobs:
   history:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      changed: ${{ steps.package.outputs.changed }}
+      artifact: ${{ steps.package.outputs.artifact }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -25,44 +33,45 @@ jobs:
           python-version: '3.12'
       - name: Test history rules
         run: python -m unittest calendar_history.test_monitor calendar_history.test_combined seats.test_monitor -v
-      - name: Check daily gate
+      - name: Check measurement gate
         id: gate
         run: |
           python - <<'PY'
           import os
           from datetime import datetime
           from calendar_history.combined import due_observation, TZ
-          now = datetime.now(TZ)
-          allowed = due_observation(now) is not None
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              f.write(f'run={str(allowed).lower()}\n')
+              f.write(f"run={str(due_observation(datetime.now(TZ)) is not None).lower()}\n")
           PY
       - name: Install browser
         if: steps.gate.outputs.run == 'true'
         run: |
           pip install -r requirements.txt
           python -m playwright install --with-deps chromium
-      - name: Snapshot full calendar and send daily summary
+      - name: Snapshot full calendar and send summary
         if: steps.gate.outputs.run == 'true'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python -m calendar_history.monitor
-      - name: Save immutable snapshots and tables
-        id: save_calendar
+      - name: Package changed task 3 data and delivery state
+        id: package
         if: always()
-        run: |
-          if [ ! -d data/calendar_history ]; then exit 0; fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add data/calendar_history
-          if ! git diff --cached --quiet; then
-            git commit -m 'Save daily full calendar history and Telegram receipt'
-            git push
-          fi
-
-      - name: Confirm task 3 to external Healthchecks
-        if: ${{ always() && steps.save_calendar.outcome == 'success' }}
-        env:
-          HEALTHCHECKS_API_KEY: ${{ secrets.HEALTHCHECKS_API_KEY }}
-        run: python -m health.external 3
+        run: python -m workflow_support.persistence export --task 3 --directory "$RUNNER_TEMP/monitor-bundle"
+      - name: Preserve results for the serialized writer
+        if: ${{ always() && steps.package.outputs.changed == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.artifact }}
+          path: ${{ runner.temp }}/monitor-bundle/
+          if-no-files-found: error
+          retention-days: 14
+  save:
+    needs: history
+    if: ${{ always() && needs.history.outputs.changed == 'true' }}
+    uses: ./.github/workflows/save-monitor-results.yml
+    with:
+      task: '3'
+      artifact: ${{ needs.history.outputs.artifact }}
+    secrets:
+      HEALTHCHECKS_API_KEY: ${{ secrets.HEALTHCHECKS_API_KEY }}

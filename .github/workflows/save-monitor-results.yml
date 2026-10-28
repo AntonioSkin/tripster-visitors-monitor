@@ -1,0 +1,44 @@
+name: Save monitoring results
+on:
+  workflow_call:
+    inputs:
+      task:
+        required: true
+        type: string
+      artifact:
+        required: true
+        type: string
+    secrets:
+      HEALTHCHECKS_API_KEY:
+        required: false
+permissions:
+  contents: write
+jobs:
+  save:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: monitor-results-write
+      queue: max
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download this collection's immutable results
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact }}
+          path: ${{ runner.temp }}/monitor-results
+      - name: Save only this task's files against the latest main
+        env:
+          TASK_ID: ${{ inputs.task }}
+        run: python -m workflow_support.persistence apply --task "$TASK_ID" --directory "$RUNNER_TEMP/monitor-results"
+      - name: Confirm persisted completion to external Healthchecks
+        env:
+          TASK_ID: ${{ inputs.task }}
+          HEALTHCHECKS_API_KEY: ${{ secrets.HEALTHCHECKS_API_KEY }}
+        run: python -m health.external "$TASK_ID"

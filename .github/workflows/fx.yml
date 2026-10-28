@@ -6,16 +6,24 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['fx/**', '.github/workflows/fx.yml']
+    paths:
+      - 'fx/**'
+      - '.github/workflows/fx.yml'
+      - 'workflow_support/**'
+      - '.github/workflows/save-monitor-results.yml'
 permissions:
   contents: write
 concurrency:
-  group: tripster-visitors
+  group: tripster-task-4
+  queue: max
   cancel-in-progress: false
 jobs:
   history:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      changed: ${{ steps.package.outputs.changed }}
+      artifact: ${{ steps.package.outputs.artifact }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -30,21 +38,24 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python -m fx.monitor
-      - name: Save immutable snapshots and tables
-        id: save_fx
+      - name: Package changed task 4 data and delivery state
+        id: package
         if: always()
-        run: |
-          if [ ! -d data/fx ]; then exit 0; fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add data/fx
-          if ! git diff --cached --quiet; then
-            git commit -m 'Save RUB KZT observation and completion'
-            git push
-          fi
-
-      - name: Confirm task 4 to external Healthchecks
-        if: ${{ always() && steps.save_fx.outcome == 'success' }}
-        env:
-          HEALTHCHECKS_API_KEY: ${{ secrets.HEALTHCHECKS_API_KEY }}
-        run: python -m health.external 4
+        run: python -m workflow_support.persistence export --task 4 --directory "$RUNNER_TEMP/monitor-bundle"
+      - name: Preserve results for the serialized writer
+        if: ${{ always() && steps.package.outputs.changed == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.artifact }}
+          path: ${{ runner.temp }}/monitor-bundle/
+          if-no-files-found: error
+          retention-days: 14
+  save:
+    needs: history
+    if: ${{ always() && needs.history.outputs.changed == 'true' }}
+    uses: ./.github/workflows/save-monitor-results.yml
+    with:
+      task: '4'
+      artifact: ${{ needs.history.outputs.artifact }}
+    secrets:
+      HEALTHCHECKS_API_KEY: ${{ secrets.HEALTHCHECKS_API_KEY }}

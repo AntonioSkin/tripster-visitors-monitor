@@ -1,0 +1,24 @@
+name: Verify independent monitoring
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['workflow_support/**', '.github/workflows/*.yml']
+permissions:
+  contents: read
+concurrency:
+  group: monitor-orchestration-tests
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test independent writes, conflict recovery, dispatch, and workflow locks
+        run: python -m unittest workflow_support.test_persistence workflow_support.test_dispatch workflow_support.test_workflows -v
