@@ -121,7 +121,8 @@ class PersistenceTests(unittest.TestCase):
         collector = self.clone('collector')
         self.write(collector, 'data/seats/state.json', 'new seats')
         package = self.bundle(collector, '2', 'bundle')
-        (package / 'files/data/seats/state.json').write_text('corrupt')
+        blob = json.loads((package / 'manifest.json').read_text())['files'][0]['blob']
+        (package / 'files' / blob).write_text('corrupt')
         with self.assertRaises(ValueError):
             apply_bundle(self.clone('writer'), '2', package, '123')
 
@@ -134,6 +135,15 @@ class PersistenceTests(unittest.TestCase):
         with patch.dict(os.environ, {'GITHUB_ACTIONS': 'false'}):
             with self.assertRaises(RuntimeError):
                 apply_bundle(self.seed, '2', self.root / 'absent', '123')
+
+    def test_observation_timestamps_use_portable_artifact_filenames(self):
+        collector = self.clone('collector')
+        name = 'data/fx/completed/2026-10-28T20:00.json'
+        self.write(collector, name, '{"alert_sent": false}')
+        package = self.bundle(collector, '4', 'bundle')
+        self.assertTrue(all(':' not in str(p.relative_to(package)) for p in package.rglob('*')))
+        apply_bundle(self.clone('writer'), '4', package, '123')
+        self.assertEqual((self.clone('final') / name).read_text(), '{"alert_sent": false}')
 
 
 if __name__ == '__main__':

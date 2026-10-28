@@ -70,10 +70,12 @@ def export_bundle(root, task, directory, run_id):
         if digest(content) == base:
             continue
         if content is not None:
-            destination = directory / 'files' / name
+            # Artifact storage rejects ':' in observation filenames on every OS.
+            # Keep original paths only in JSON; blob filenames use safe hashes.
+            destination = directory / 'files' / digest(content)
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_bytes(content)
-        entries.append({'path': name, 'base': base, 'content': digest(content)})
+        entries.append({'path': name, 'base': base, 'content': digest(content), 'blob': digest(content)})
     if not entries:
         return 0
     directory.mkdir(parents=True, exist_ok=True)
@@ -101,7 +103,10 @@ def read_bundle(directory, task, run_id):
                 raise ValueError('Invalid result checksum')
         content = None
         if entry['content'] is not None:
-            content = safe_file(directory / 'files', name).read_bytes()
+            blob = entry.get('blob', name)  # Also read already-uploaded legacy bundles.
+            if 'blob' in entry and blob != entry['content']:
+                raise ValueError('Invalid result blob name')
+            content = safe_file(directory / 'files', blob).read_bytes()
             if digest(content) != entry['content']:
                 raise ValueError('Result checksum mismatch')
         records.append((name, entry['base'], entry['content'], content))

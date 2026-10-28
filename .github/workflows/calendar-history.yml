@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
-      changed: ${{ steps.package.outputs.changed }}
+      changed: ${{ steps.upload.outcome == 'success' && steps.package.outputs.changed == 'true' }}
       artifact: ${{ steps.package.outputs.artifact }}
     steps:
       - uses: actions/checkout@v4
@@ -59,6 +59,7 @@ jobs:
         if: always()
         run: python -m workflow_support.persistence export --task 3 --directory "$RUNNER_TEMP/monitor-bundle"
       - name: Preserve results for the serialized writer
+        id: upload
         if: ${{ always() && steps.package.outputs.changed == 'true' }}
         uses: actions/upload-artifact@v4
         with:
