@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from calendar_history.combined import GROUPS
-from closures.monitor import EXPERIENCES, alert_text, prepare, read, run_all, run_check
+from closures.monitor import EXPERIENCES, alert_text, prepare, read, reconcile_history, run_all, run_check
 from monitor import TZ
 
 
@@ -20,6 +20,7 @@ class ClosureTests(unittest.TestCase):
         self.tour = EXPERIENCES[0]
         self.addCleanup(patch.stopall)
         patch.dict(os.environ, {'TELEGRAM_BOT_TOKEN': 'test', 'TELEGRAM_CHAT_ID': 'test'}).start()
+        patch('closures.monitor.ROOT', self.root).start()
 
     def snapshot(self, counts, now=None, keys=None):
         now = now or self.now
@@ -52,15 +53,49 @@ class ClosureTests(unittest.TestCase):
         for value in ('Задача 5', 'Юлия', '51192', '30.10.2026', '06:00', '5 → 0', self.tour['title']):
             self.assertIn(value, text)
 
-    def test_positive_decrease_or_missing_departure_is_not_zero(self):
+    def test_missing_departure_alerts_as_unpublished_without_fabricating_zero(self):
         state, _ = prepare(self.snapshot([12, 6]), {})
         state, events = prepare(self.snapshot([7], self.now + timedelta(minutes=30)), state)
-        self.assertEqual(events, [])
+        self.assertEqual([event['kind'] for event in events], ['unpublished'])
+        self.assertIsNone(events[0]['available'])
+        self.assertIn('выезд больше недоступен', alert_text(events, self.tour))
+        self.assertNotIn('→ 0', alert_text(events, self.tour))
         self.assertEqual(state['slots']['2026-10-30T07:00']['available'], 6)
         state, events = prepare(self.snapshot([], self.now + timedelta(hours=1)), state)
-        self.assertEqual(events, [])
+        self.assertEqual([event['previous'] for event in events], [7])
         state, events = prepare(self.snapshot([0], self.now + timedelta(hours=2), ['2026-10-30T07:00']), state)
-        self.assertEqual(events[0]['previous'], 6)
+        self.assertEqual(events, [])  # Previously unpublished, now explicit zero: same closure.
+        state, events = prepare(self.snapshot([], self.now + timedelta(hours=3)), state)
+        self.assertEqual(events, [])
+
+    def test_removed_reopened_removed_again_and_initial_absence(self):
+        state, events = prepare(self.snapshot([]), {})
+        self.assertEqual(events, [])
+        state, _ = prepare(self.snapshot([12], self.now + timedelta(minutes=30)), state)
+        state, events = prepare(self.snapshot([], self.now + timedelta(hours=1)), state)
+        self.assertEqual(len(events), 1)
+        first = events[0]['event_id']
+        state, _ = prepare(self.snapshot([5], self.now + timedelta(hours=2)), state)
+        state, events = prepare(self.snapshot([], self.now + timedelta(hours=3)), state)
+        self.assertEqual(events[0]['previous'], 5)
+        self.assertNotEqual(events[0]['event_id'], first)
+
+    def test_history_recovers_counts_missing_before_initial_task_five_baseline_once(self):
+        directory = self.root / 'data/calendar_history/51192/measurements'
+        directory.mkdir(parents=True)
+        old = self.snapshot([12, 9], self.now - timedelta(days=1))
+        (directory / 'old.json').write_text(json.dumps(old))
+        obsolete = self.snapshot([12], self.now - timedelta(days=2), ['2026-10-30T04:00'])
+        (directory / 'obsolete.json').write_text(json.dumps(obsolete))
+        (directory / 'current.json').write_text(json.dumps(self.snapshot([], self.now - timedelta(minutes=30))))
+        current = self.snapshot([])
+        state = reconcile_history({}, self.tour, current, self.root)
+        state, events = prepare(current, state)
+        self.assertEqual([event['previous'] for event in events], [12, 9])
+        self.assertTrue(all(event['kind'] == 'unpublished' for event in events))
+        self.assertEqual(reconcile_history(state, self.tour, current, self.root), state)
+        state, events = prepare(self.snapshot([], self.now + timedelta(minutes=30)), state)
+        self.assertEqual(events, [])
 
     def test_rolling_window_adds_new_baselines_and_prunes_past_departures(self):
         state, _ = prepare(self.snapshot([12, 0], keys=['2026-10-29T15:00', '2026-11-27T06:00']), {})

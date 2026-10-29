@@ -1,8 +1,9 @@
-"""Alert on a confirmed positive-to-zero change; never modify Tripster capacity."""
+"""Alert when a future departure becomes zero or is unpublished."""
 import hashlib
 import json
 import os
 from datetime import date, datetime, timedelta
+from pathlib import Path
 
 from calendar_history.combined import GROUPS
 from monitor import ROOT, TZ
@@ -25,6 +26,56 @@ def read(path, default=None):
     return json.loads(path.read_text(encoding='utf-8')) if path.exists() else ({} if default is None else default)
 
 
+def reconcile_history(state, experience, snapshot, root):
+    """Recover real previous counts missed by the original task-5 baseline.
+
+    Task 3 already observed these exact departures. Import only the latest
+    known value for absent task-5 keys; never replace a newer task-5 value.
+    This is a one-time migration, not a fabricated zero or a sales estimate.
+    """
+    if state.get('history_reconciled'):
+        return state
+    group = next(g for g in GROUPS if any(t['id'] == experience['id'] for t in g['tours']))
+    base = root / 'data/calendar_history'
+    directory = (base / str(experience['id']) if group['key'] == 'yulia'
+                 else base / group['key'] / 'tours' / str(experience['id']))
+    checked = datetime.fromisoformat(snapshot['checked_at'])
+    # Use one recent complete calendar before task 5 began, rather than merging
+    # all historic time keys (old timetable changes must not create new alarms).
+    initial = read(root / 'data/closures/initialized.json').get('sent_at',
+                   state.get('last_observed', snapshot['checked_at']))
+    first_day = datetime.fromisoformat(initial).astimezone(checked.tzinfo).date()
+    candidates = []
+    for folder in ('daily', 'measurements'):
+        for path in (directory / folder).glob('*.json'):
+            old = read(path)
+            at = datetime.fromisoformat(old['checked_at'])
+            if old.get('experience_id') != experience['id'] or at >= checked or at.date() >= first_day:
+                continue
+            candidates.append((at, str(path), old))
+    historical = {}
+    if candidates:
+        _, source, old = max(candidates, key=lambda row: (row[0], row[1]))
+        for slot in old['slots']:
+            key = slot['key']
+            if (snapshot['date_from'] <= slot['date'] <= snapshot['date_to']
+                    and datetime.fromisoformat(key).replace(tzinfo=checked.tzinfo) > checked):
+                historical[key] = {'available': slot['available'], 'observed_at': old['checked_at'],
+                                   'source': str(Path(source).relative_to(root))}
+    known = dict(state.get('slots', {}))
+    for key, value in historical.items():
+        if key not in known and value['available'] > 0:
+            known[key] = value
+    return dict(state, slots=known, history_reconciled=True)
+
+
+def closure_event(snapshot, key, old, kind, slot=None):
+    identity = f"{snapshot['experience_id']}|{key}|{old['observed_at']}|{snapshot['checked_at']}|{kind}"
+    return dict(slot or {'key': key, 'date': key[:10], 'time': key[11:], 'available': None},
+                previous=old['available'], previous_observed_at=old['observed_at'], kind=kind,
+                detected_at=snapshot['checked_at'], event_id=hashlib.sha256(identity.encode()).hexdigest())
+
+
 def prepare(snapshot, state):
     """Persist a comparison and its outbox together, before attempting Telegram."""
     checked = datetime.fromisoformat(snapshot['checked_at'])
@@ -36,8 +87,8 @@ def prepare(snapshot, state):
     if last and checked < datetime.fromisoformat(last):
         raise ValueError('Старый замер не должен заменять более новый')
     previous = state.get('slots', {})
-    # Missing departures are unknown. Keep their last known count until departure,
-    # but never manufacture a zero or a closure from an absent date/time.
+    # A previously available future departure that is no longer published is
+    # unavailable too. Preserve the distinction from an explicit numeric zero.
     known = {key: value for key, value in previous.items()
              if start <= key[:10] <= end and datetime.fromisoformat(key).replace(tzinfo=checked.tzinfo) > checked}
     pending = list(state.get('pending', []))
@@ -51,14 +102,18 @@ def prepare(snapshot, state):
             raise ValueError('Некорректный остаток или время выезда')
         seen.add(key)
         old = previous.get(key)
-        if old is not None and old['available'] > 0 and count == 0:
-            identity = f"{snapshot['experience_id']}|{key}|{old['observed_at']}|{snapshot['checked_at']}"
-            event = dict(slot, previous=old['available'], detected_at=snapshot['checked_at'],
-                         event_id=hashlib.sha256(identity.encode()).hexdigest())
+        if old is not None and old['available'] > 0 and not old.get('closed') and count == 0:
+            event = closure_event(snapshot, key, old, 'zero', slot)
             events.append(event)
             pending.append(event)
-        known[key] = {'available': count, 'observed_at': snapshot['checked_at']}
-    return dict(state, version=1, initialized=True, slots=known, pending=pending,
+        known[key] = {'available': count, 'observed_at': snapshot['checked_at'], 'closed': count == 0}
+    for key, old in list(known.items()):
+        if key not in seen and old['available'] > 0 and not old.get('closed'):
+            event = closure_event(snapshot, key, old, 'unpublished')
+            events.append(event)
+            pending.append(event)
+            known[key] = dict(old, closed=True, unavailable_since=snapshot['checked_at'])
+    return dict(state, version=2, initialized=True, slots=known, pending=pending,
                 last_observed=snapshot['checked_at']), events
 
 
@@ -66,7 +121,10 @@ def alert_text(events, experience):
     lines = ['Задача 5 — закрыты места', experience_label(experience), '']
     for event in events:
         day = date.fromisoformat(event['date']).strftime('%d.%m.%Y')
-        lines.append(f"{day} в {event['time']}: {event['previous']} → 0 мест")
+        if event.get('kind') == 'unpublished':
+            lines.append(f"{day} в {event['time']}: выезд больше недоступен в календаре (было {event['previous']} мест)")
+        else:
+            lines.append(f"{day} в {event['time']}: {event['previous']} → 0 мест")
     lines.extend(['', 'При необходимости проверьте и закройте свои места.', experience_url(experience)])
     return '\n'.join(lines)
 
@@ -82,6 +140,7 @@ def run_check(experience, directory, collect_fn=None, send_fn=send_message, now_
         snapshot = collect_fn()
         if snapshot.get('experience_id') != experience['id']:
             raise ValueError('Получен календарь другой экскурсии')
+        state = reconcile_history(state, experience, snapshot, ROOT)
         state, events = prepare(snapshot, state)
         save_json(directory / 'latest.json', snapshot)
         save_json(state_path, state)
@@ -136,7 +195,8 @@ def run_all(directory=DIRECTORY, check_fn=None, send_fn=send_message, now_fn=Non
                 'Дмитрий: 57434 / 85543 / 55575 / 54971\n\n'
                 'Исходные остатки на ближайшие 30 дней сохранены.\n'
                 'Проверки запланированы каждые 30 минут. '
-                'Уведомлю при переходе остатка с положительного числа на ноль.')
+                'Уведомлю при переходе остатка с положительного числа на ноль '
+                'или исчезновении ранее доступного выезда из календаря.')
         save_json(initialized, {'sent_at': now_fn().isoformat()})
     value = {'ok': True, 'completed_at': now_fn().isoformat(),
              'tours': [experience['id'] for experience in EXPERIENCES]}
