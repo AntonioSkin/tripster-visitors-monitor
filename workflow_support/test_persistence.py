@@ -145,6 +145,18 @@ class PersistenceTests(unittest.TestCase):
         apply_bundle(self.clone('writer'), '4', package, '123')
         self.assertEqual((self.clone('final') / name).read_text(), '{"alert_sent": false}')
 
+    def test_task_five_writes_only_its_own_state_without_changing_other_tasks(self):
+        collector = self.clone('closures')
+        self.write(collector, 'data/closures/51192/state.json', '{"pending": []}')
+        self.write(collector, 'data/seats/state.json', 'must not export')
+        package = self.bundle(collector, '5', 'bundle5')
+        self.assertEqual([row[0] for row in read_bundle(package, '5', '123')], ['data/closures/51192/state.json'])
+        apply_bundle(self.clone('writer5'), '5', package, '123')
+        final = self.clone('final')
+        self.assertEqual((final / 'data/closures/51192/state.json').read_text(), '{"pending": []}')
+        self.assertEqual((final / 'data/seats/state.json').read_text(), 'old seats')
+
 
 if __name__ == '__main__':
     unittest.main()
+

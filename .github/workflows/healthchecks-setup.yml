@@ -43,10 +43,11 @@ jobs:
           import os
           from telegram_report import send_message
           send_message(os.environ['TELEGRAM_BOT_TOKEN'], os.environ['TELEGRAM_CHAT_ID'],
-              'Внешний контроль Healthchecks подключён для задач 1–4.\n'
+              'Внешний контроль Healthchecks подключён для задач 1–5.\n'
               'При пропуске срока после повторных попыток Healthchecks отправит тревогу в свой Telegram-чат, '
               'даже если планировщик GitHub не запустится. После восстановления придёт сообщение о восстановлении.')
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
-              f.write('Healthchecks: **4 checks configured and armed**, Telegram assigned. '
-                      'Task 1 deadline 13:00; task 2 freshness 90 minutes; tasks 3–4 deadlines 13:00 and 22:00 (Shymkent).\n')
+              f.write('Healthchecks: **5 checks configured and armed**, Telegram assigned. '
+                      'Task 1 deadline 13:00; tasks 2 and 5 freshness 90 minutes; tasks 3–4 deadlines 13:00 and 22:00 (Shymkent).\n')
           PY
+

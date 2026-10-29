@@ -7,6 +7,7 @@ from unittest.mock import Mock
 
 from monitor import TZ
 from workflow_support.dispatch import dispatch, due_tasks
+from health.external import CALENDAR_TOURS
 
 
 class DispatchTests(unittest.TestCase):
@@ -17,7 +18,7 @@ class DispatchTests(unittest.TestCase):
 
     def test_before_morning_only_seats_need_backup(self):
         with tempfile.TemporaryDirectory() as tmp:
-            self.assertEqual(due_tasks(Path(tmp), datetime(2026, 10, 29, 7, tzinfo=TZ)), ['2'])
+            self.assertEqual(due_tasks(Path(tmp), datetime(2026, 10, 29, 7, tzinfo=TZ)), ['2', '5'])
 
     def test_completed_observations_do_not_dispatch_more_work(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -30,8 +31,15 @@ class DispatchTests(unittest.TestCase):
                 base = 'data/seats' if tour == 51584 else f'data/seats/{tour}'
                 self.save(root, base + '/state.json', {'last_success': now.isoformat()})
                 self.save(root, base + '/status.json', {'ok': True})
+            for tour in CALENDAR_TOURS:
+                self.save(root, f'data/closures/{tour}/state.json', {'last_success': now.isoformat()})
+                self.save(root, f'data/closures/{tour}/status.json', {'ok': True})
+            self.save(root, 'data/closures/completed.json', {'tours': list(CALENDAR_TOURS)})
+            self.save(root, 'data/closures/status.json', {'ok': True})
             self.assertEqual(due_tasks(root, now), [])
-            self.assertEqual(due_tasks(root, now.replace(hour=20)), ['2', '3', '4'])
+            self.assertEqual(due_tasks(root, now.replace(hour=20)), ['2', '3', '4', '5'])
+            self.save(root, 'data/closures/54971/status.json', {'ok': False})
+            self.assertEqual(due_tasks(root, now), ['5'])
 
     def test_backup_uses_normal_workflow_and_skips_an_active_run(self):
         api = Mock(side_effect=[{'workflow_runs': [{'status': 'in_progress'}]}, {'workflow_runs': []}, {}])
@@ -49,3 +57,4 @@ class DispatchTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

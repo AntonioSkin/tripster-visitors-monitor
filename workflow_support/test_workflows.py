@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class WorkflowTests(unittest.TestCase):
     def test_task_locks_cover_collection_and_save_without_blocking_other_tasks(self):
         groups = []
-        for name in ('daily', 'seats', 'calendar-history', 'fx'):
+        for name in ('daily', 'seats', 'calendar-history', 'fx', 'closures'):
             text = (ROOT / f'.github/workflows/{name}.yml').read_text()
             group = re.search(r'^concurrency:\n  group: (.+)', text, re.M).group(1)
             groups.append(group)
@@ -20,7 +20,7 @@ class WorkflowTests(unittest.TestCase):
             # The name must come from the original collection even when only
             # its writer job is rerun and github.run_attempt has advanced.
             self.assertRegex(text, r'artifact: \$\{\{ needs\.\w+\.outputs\.artifact \}\}')
-        self.assertEqual(len(set(groups)), 4)
+        self.assertEqual(len(set(groups)), 5)
         writer = (ROOT / '.github/workflows/save-monitor-results.yml').read_text()
         self.assertIn('group: monitor-results-write', writer)
         self.assertNotIn('monitor-results-write', groups)
@@ -37,3 +37,4 @@ class WorkflowTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

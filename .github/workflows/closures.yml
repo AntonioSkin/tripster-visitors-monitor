@@ -1,0 +1,68 @@
+name: Competitor seat closures
+on:
+  schedule:
+    - cron: '18,48 * * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'closures/**'
+      - 'seats/monitor.py'
+      - 'calendar_history/combined.py'
+      - '.github/workflows/closures.yml'
+      - 'workflow_support/**'
+      - '.github/workflows/save-monitor-results.yml'
+permissions:
+  contents: write
+concurrency:
+  group: tripster-task-5
+  queue: max
+  cancel-in-progress: false
+jobs:
+  closures:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      changed: ${{ steps.upload.outcome == 'success' && steps.package.outputs.changed == 'true' }}
+      artifact: ${{ steps.package.outputs.artifact }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test closure detection, delivery retries, and calendar parsing
+        run: python -m unittest closures.test_monitor seats.test_monitor -v
+      - name: Install browser
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+      - name: Check competitor seats and send closure alerts
+        timeout-minutes: 16
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python -m closures.monitor
+      - name: Package changed task 5 data and delivery state
+        id: package
+        if: always()
+        run: python -m workflow_support.persistence export --task 5 --directory "$RUNNER_TEMP/monitor-bundle"
+      - name: Preserve results for the serialized writer
+        id: upload
+        if: ${{ always() && steps.package.outputs.changed == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.artifact }}
+          path: ${{ runner.temp }}/monitor-bundle/
+          if-no-files-found: error
+          retention-days: 14
+  save:
+    needs: closures
+    if: ${{ always() && needs.closures.outputs.changed == 'true' }}
+    uses: ./.github/workflows/save-monitor-results.yml
+    with:
+      task: '5'
+      artifact: ${{ needs.closures.outputs.artifact }}
+    secrets:
+      HEALTHCHECKS_API_KEY: ${{ secrets.HEALTHCHECKS_API_KEY }}

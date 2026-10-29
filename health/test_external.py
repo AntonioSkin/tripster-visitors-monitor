@@ -63,6 +63,36 @@ class ExternalTests(unittest.TestCase):
         self.save('data/seats/103689/status.json', {'ok': True})
         self.assertIsNone(completion('2', self.root, self.now + timedelta(minutes=21)))
 
+    def closures(self):
+        for tour in CALENDAR_TOURS:
+            self.save(f'data/closures/{tour}/state.json', {
+                'last_success': self.at.isoformat(), 'last_observed': self.at.isoformat(), 'pending': []})
+            self.save(f'data/closures/{tour}/status.json', {'ok': True, 'checked_at': self.at.isoformat()})
+        value = {'ok': True, 'tours': list(CALENDAR_TOURS), 'completed_at': self.at.isoformat()}
+        self.save('data/closures/completed.json', value)
+        self.save('data/closures/status.json', value)
+
+    def test_closures_require_all_seven_recent_successes_and_empty_outboxes(self):
+        self.closures()
+        self.assertEqual(completion('5', self.root, self.now), self.at)
+        self.save('data/closures/54971/state.json', {
+            'last_success': self.at.isoformat(), 'last_observed': self.at.isoformat(), 'pending': [{'event_id': 'unsent'}]})
+        self.assertIsNone(completion('5', self.root, self.now))
+        self.closures()
+        self.save('data/closures/54971/status.json', {'ok': False})
+        self.assertIsNone(completion('5', self.root, self.now))
+        self.closures()
+        self.assertIsNone(completion('5', self.root, self.now + timedelta(minutes=21)))
+        self.assertEqual(first_deadline('5', self.root, self.now), self.at + timedelta(minutes=90))
+
+    def test_partial_closure_run_cannot_reuse_an_older_complete_receipt(self):
+        self.closures()
+        fresh = self.at + timedelta(minutes=1)
+        self.save('data/closures/54971/state.json', {
+            'last_success': fresh.isoformat(), 'last_observed': fresh.isoformat(), 'pending': []})
+        self.save('data/closures/54971/status.json', {'ok': True, 'checked_at': fresh.isoformat()})
+        self.assertIsNone(completion('5', self.root, self.now))
+
     def test_calendar_needs_all_seven_snapshots_and_joint_delivery(self):
         self.save(f'data/calendar_history/joint/telegram/{self.obs}.json', {
             'sent_at': self.at.isoformat(), 'observation_id': self.obs, 'tours': list(CALENDAR_TOURS)})
@@ -104,9 +134,10 @@ class ExternalTests(unittest.TestCase):
 
         with patch('health.external.request', side_effect=api), patch('health.external.ping', side_effect=ping) as send:
             setup('test', self.root, self.now)
-        self.assertEqual(send.call_count, 4)
+        self.assertEqual(send.call_count, 5)
         self.assertEqual(checks[2]['grace'], 90 * 60)
         self.assertEqual(first_deadline('3', self.root, self.now).hour, 13)
+        self.assertEqual(first_deadline('5', self.root, self.now), self.now + timedelta(minutes=90))
 
     def test_real_success_restores_normal_grace_after_initial_start(self):
         self.fx()
@@ -126,3 +157,4 @@ class ExternalTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

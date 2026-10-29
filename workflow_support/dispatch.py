@@ -9,9 +9,9 @@ from monitor import ROOT, TZ
 from delivery_policy import delivery_allowed
 from calendar_history.combined import due_observation
 from fx.monitor import observation
-from health.external import read, seat_stamps
+from health.external import read, seat_stamps, closure_stamps, CALENDAR_TOURS
 
-WORKFLOWS = {'1': 'daily.yml', '2': 'seats.yml', '3': 'calendar-history.yml', '4': 'fx.yml'}
+WORKFLOWS = {'1': 'daily.yml', '2': 'seats.yml', '3': 'calendar-history.yml', '4': 'fx.yml', '5': 'closures.yml'}
 
 
 def due_tasks(root, now):
@@ -29,6 +29,14 @@ def due_tasks(root, now):
     key = observation(now)
     if key is not None and not (root / f'data/fx/completed/{key}.json').exists():
         result.append('4')
+    recent = closure_stamps(root)
+    statuses = [read(root, f'data/closures/{tour}/status.json') for tour in CALENDAR_TOURS]
+    complete = read(root, 'data/closures/completed.json')
+    if (not all(recent) or not all(timedelta(0) <= now - value < timedelta(minutes=25) for value in recent)
+            or not all(s.get('ok') is True for s in statuses)
+            or read(root, 'data/closures/status.json').get('ok') is not True
+            or set(complete.get('tours', [])) != set(CALENDAR_TOURS)):
+        result.append('5')
     return result
 
 
@@ -75,3 +83,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

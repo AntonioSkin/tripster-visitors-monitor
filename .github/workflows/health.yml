@@ -3,7 +3,7 @@ on:
   schedule:
     - cron: '5,20,35,50 * * * *'
   workflow_run:
-    workflows: ['Daily visitors', 'Tripster seat alerts', 'Twice-daily full calendar history', 'RUB KZT monitoring']
+    workflows: ['Daily visitors', 'Tripster seat alerts', 'Twice-daily full calendar history', 'RUB KZT monitoring', 'Competitor seat closures']
     types: [completed]
   workflow_dispatch:
   push:
@@ -37,3 +37,4 @@ jobs:
         env:
           HEALTHCHECKS_API_KEY: ${{ secrets.HEALTHCHECKS_API_KEY }}
         run: python -m health.external all
+

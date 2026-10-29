@@ -44,3 +44,19 @@ class HealthTests(unittest.TestCase):
             checks = {key: ('Задача 2', ok, 'interval', 'сбор данных') for key in state}
             self.assertEqual(notifications(checks, state, now), [])
             self.assertTrue(all(value == ('ok' if ok else 'failed') for value in state.values()))
+
+    def test_task_five_health_and_recovery_use_the_separate_external_channel(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            now = datetime(2026,10,29,12,tzinfo=TZ)
+            checks = assess(root, now)
+            self.assertFalse(checks['5:closures'][1])
+            state = {}
+            self.assertEqual(notifications({'5:closures': checks['5:closures']}, state, now), [])
+            (root / 'data/closures').mkdir(parents=True)
+            (root / 'data/closures/completed.json').write_text(json.dumps({'completed_at': now.isoformat()}))
+            check = assess(root, now)['5:closures']
+            self.assertTrue(check[1])
+            self.assertEqual(notifications({'5:closures': check}, state, now), [])
+            self.assertEqual(state['5:closures'], 'ok')
+

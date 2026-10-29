@@ -60,9 +60,13 @@ def assess(root, now):
         ok = bool(last) and now - datetime.fromisoformat(last) <= timedelta(minutes=90)
         checks[f'2:{tour}'] = (f'Задача 2 — места 0–6, экскурсия {tour}', ok,
             'последняя успешная проверка: ' + (last or 'не найдена'), 'сбор данных')
+    last = read(root, 'data/closures/completed.json').get('completed_at')
+    ok = bool(last) and timedelta(0) <= now - datetime.fromisoformat(last) <= timedelta(minutes=90)
+    checks['5:closures'] = ('Задача 5 — закрытие мест конкурентов', ok,
+        'последняя успешная проверка всех семи экскурсий: ' + (last or 'не найдена'), 'сбор данных и отправка')
     # Report deadline violations even when collection recovered before this check.
     for key, check in list(checks.items()):
-        if key.startswith('2:') or not check[1]:
+        if key.startswith(('2:', '5:')) or not check[1]:
             continue
         day = datetime.fromisoformat(key[2:12]).replace(tzinfo=TZ)
         if key.startswith('1:'):
@@ -86,9 +90,9 @@ def assess(root, now):
 def notifications(checks, state, now):
     result = []
     for key, (title, ok, interval, stage) in checks.items():
-        # Task 2 service alerts belong only to the separate Healthchecks chat.
+        # Frequent tasks 2 and 5 use only the separate Healthchecks chat for service alerts.
         # Keep tracking state, including old failures, without sending recovery duplicates.
-        if key.startswith('2:'):
+        if key.startswith(('2:', '5:')):
             state[key] = 'ok' if ok else 'failed'
             continue
         previous = state.get(key)
@@ -137,7 +141,7 @@ def main():
     if 'started_on' not in state:
         state['started_on'] = now.date().isoformat()
     checks = {k: v for k, v in checks.items()
-              if k.startswith('2:') or k[2:12] >= state['started_on']}
+              if k.startswith(('2:', '5:')) or k[2:12] >= state['started_on']}
     messages = notifications(checks, state.setdefault('tasks', {}), now)
     for message in messages:
         send_message(os.environ['TELEGRAM_BOT_TOKEN'], os.environ['TELEGRAM_CHAT_ID'], message)
@@ -151,3 +155,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

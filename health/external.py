@@ -23,6 +23,7 @@ SPECS = {
     '2': {'name': 'Задача 2 — свободные места 0–6', 'timeout': 1800, 'grace': 3600},
     '3': {'name': 'Задача 3 — Юлия и Дмитрий', 'schedule': '0 11,20 * * *', 'grace': 7200},
     '4': {'name': 'Задача 4 — курс RUB/KZT Wise', 'schedule': '0 11,20 * * *', 'grace': 7200},
+    '5': {'name': 'Задача 5 — закрытие мест конкурентов', 'timeout': 1800, 'grace': 3600},
 }
 
 
@@ -58,9 +59,31 @@ def seat_stamps(root):
                        + '/state.json').get('last_success')) for i in (51584, 51691, 83542, 103689)]
 
 
+def closure_stamps(root):
+    return [stamp(read(root, f'data/closures/{tour}/state.json').get('last_success'))
+            for tour in CALENDAR_TOURS]
+
+
 def completion(task, root, now):
     """Return a fresh, fully delivered observation, never an old successful exit."""
     now = now.astimezone(TZ)
+    if task == '5':
+        times = closure_stamps(root)
+        receipt = read(root, 'data/closures/completed.json')
+        done = stamp(receipt.get('completed_at'))
+        if (not all(times) or not done or set(receipt.get('tours', [])) != set(CALENDAR_TOURS)
+                or receipt.get('ok') is not True or read(root, 'data/closures/status.json').get('ok') is not True
+                or not all(timedelta(0) <= now - t <= timedelta(minutes=20) for t in times)
+                or not max(times) <= done <= now):
+            return None
+        for tour, checked in zip(CALENDAR_TOURS, times):
+            state = read(root, f'data/closures/{tour}/state.json')
+            status = read(root, f'data/closures/{tour}/status.json')
+            if (status.get('ok') is not True or state.get('pending')
+                    or stamp(status.get('checked_at')) != checked
+                    or stamp(state.get('last_observed')) != checked):
+                return None
+        return done
     if task == '2':
         times = seat_stamps(root)
         if not all(times) or not all(timedelta(0) <= now - t <= timedelta(minutes=20) for t in times):
@@ -169,9 +192,9 @@ def report(task, check, key, root, now):
 
 
 def first_deadline(task, root, now):
-    if task != '2':
+    if task not in ('2', '5'):
         return window(task, now)[1]
-    times = seat_stamps(root)
+    times = seat_stamps(root) if task == '2' else closure_stamps(root)
     return min(times) + timedelta(minutes=90) if all(times) else now + timedelta(minutes=90)
 
 
@@ -186,7 +209,7 @@ def setup(key, root, now):
                       desc='Шымкент (UTC+5). Успех: полный сбор и необходимая отправка в Telegram. '
                            'Повторный запуск без нового замера не подтверждает успех. '
                            'При пропуске срока или исчезновении GitHub schedule уведомляет Healthchecks.')
-        if task == '2':
+        if task in ('2', '5'):
             fields.pop('tz')
         check = request(API + 'checks/', key, fields)
         if report(task, check, key, root, now):
@@ -205,7 +228,7 @@ def setup(key, root, now):
         found = [c for c in checks if c.get('slug') == slug(task)]
         if len(found) != 1 or (not found[0].get('last_ping') and not found[0].get('started')):
             raise RuntimeError(f'Healthchecks не подтвердил активацию задачи {task}')
-    print('Healthchecks: все 4 проверки созданы, Telegram назначен, контроль активирован')
+    print(f'Healthchecks: все {len(SPECS)} проверок созданы, Telegram назначен, контроль активирован')
 
 
 def main():
@@ -242,3 +265,4 @@ if __name__ == '__main__':
     except Exception as exc:
         print(str(exc) if isinstance(exc, RuntimeError) else 'Ошибка внешнего контроля Healthchecks; секреты скрыты')
         raise SystemExit(1) from None
+
