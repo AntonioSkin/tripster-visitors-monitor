@@ -1,12 +1,2 @@
-Задача 3 — остатки мест
-
-01.11.2026:
-Юлия — без изменений
-Дмитрий — продано 2 места
-Всего — продано 2 места
-
-Все актуальные данные — в таблицах.
-Юлия
-https://github.com/AntonioSkin/tripster-visitors-monitor/blob/main/data/calendar_history/yulia/summary.csv
-Дмитрий
-https://github.com/AntonioSkin/tripster-visitors-monitor/blob/main/data/calendar_history/dmitry/summary.csv
+Задача 3 — проверка выполнена.
+По Юлии и Дмитрию изменений нет.
