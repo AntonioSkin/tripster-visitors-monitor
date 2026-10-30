@@ -37,7 +37,8 @@ jobs:
               uuid = check.get('uuid', '')
               if not re.fullmatch(r'[0-9a-f-]{36}', uuid):
                   raise RuntimeError('Invalid Healthchecks check identifier')
-              flips = request(API + 'checks/' + uuid + '/flips/?seconds=86400', key)
+              response = request(API + 'checks/' + uuid + '/flips/?seconds=86400', key)
+              flips = response['flips'] if isinstance(response, dict) else response
               flips = sorted(flips, key=lambda f: f['timestamp'])
               ups = [f for f in flips if f['up'] == 1]
               downs = [f for f in flips if f['up'] == 0]
