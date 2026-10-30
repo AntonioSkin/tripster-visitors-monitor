@@ -40,12 +40,12 @@ def merge_rows(by_tour, day):
 
 def save_table(path, rows):
     out=io.StringIO(); writer=csv.writer(out)
-    writer.writerow(['Дата выезда','Остаток','Чистое уменьшение с прошлого замера','Чистое уменьшение с начала','Дата замера','Начальный остаток'])
+    writer.writerow(['Дата выезда','Остаток','Чистое уменьшение с начала','Чистое уменьшение с прошлого замера','Дата замера','Начальный остаток'])
     for row in rows:
         departure = datetime.fromisoformat(row['departure']).strftime('%d-%m-%Y')
         observed = datetime.fromisoformat(row['observed']).strftime('%d-%m-%Y')
         writer.writerow([departure] + [row[k] if row[k] is not None else '—'
-                                      for k in ('remaining','daily','total')] + [observed, row['initial'] if row['initial'] is not None else '—'])
+                                      for k in ('remaining','total','daily')] + [observed, row['initial'] if row['initial'] is not None else '—'])
     write_text(path,'\ufeff'+out.getvalue())
 
 
