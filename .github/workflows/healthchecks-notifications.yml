@@ -1,0 +1,48 @@
+name: Audit Healthchecks notifications
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/healthchecks-notifications.yml']
+permissions:
+  contents: read
+concurrency:
+  group: healthchecks-notification-audit
+  cancel-in-progress: false
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Inspect status transitions without sending test notifications
+        env:
+          HEALTHCHECKS_API_KEY: ${{ secrets.HEALTHCHECKS_API_KEY }}
+        run: |
+          python - <<'PY'
+          import json, os, re
+          from health.external import API, TAG, SPECS, request, slug
+          key = os.environ['HEALTHCHECKS_API_KEY']
+          checks = request(API + 'checks/?tag=' + TAG, key).get('checks', [])
+          for task in SPECS:
+              selected = [c for c in checks if c.get('slug') == slug(task)]
+              if len(selected) != 1:
+                  raise RuntimeError('Expected exactly one check for task ' + task)
+              check = selected[0]
+              uuid = check.get('uuid', '')
+              if not re.fullmatch(r'[0-9a-f-]{36}', uuid):
+                  raise RuntimeError('Invalid Healthchecks check identifier')
+              flips = request(API + 'checks/' + uuid + '/flips/?seconds=86400', key)
+              flips = sorted(flips, key=lambda f: f['timestamp'])
+              ups = [f for f in flips if f['up'] == 1]
+              downs = [f for f in flips if f['up'] == 0]
+              print(json.dumps({'task': task, 'status': check.get('status'),
+                  'timeout': check.get('timeout'), 'grace': check.get('grace'),
+                  'last_ping': check.get('last_ping'), 'down_events_24h': len(downs),
+                  'up_events_24h': len(ups), 'recent_changes': flips[-10:]}, ensure_ascii=False))
+          PY
