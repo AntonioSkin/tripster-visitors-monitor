@@ -76,6 +76,9 @@ def collect(email, password):
         page = context.new_page()
         page.set_default_timeout(30000)
         login_responses = []
+        script_errors = []
+        page.on('pageerror', lambda error: script_errors.append(str(error)))
+        page.on('console', lambda message: script_errors.append(message.text) if message.type == 'error' else None)
         def observe_login(response):
             # Record status codes only; response bodies can contain credentials.
             if response.request.method == 'POST':
@@ -110,6 +113,13 @@ def collect(email, password):
                 })''')
                 print('Task 6: sign-in outcome ' + json.dumps(flags))
                 print('Task 6: sign-in POST status codes ' + json.dumps(login_responses))
+                for error in script_errors:
+                    # Login-page diagnostics only. Never emit credentials or URLs.
+                    for secret in (email, password, *[os.environ.get(k, '') for k in ('TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID')]):
+                        if secret:
+                            error = error.replace(secret, '<redacted>')
+                    error = re.sub(r'https?://\S+|[\w.+-]+@[\w.-]+', '<redacted>', error)
+                    print('Task 6: login script error ' + error[:350])
                 print('Task 6: final page path ' + urlsplit(page.url).path)
                 raise RuntimeError('Website did not confirm sign-in; baseline and completion were not saved') from None
             print('Task 6: sign-in confirmed')
