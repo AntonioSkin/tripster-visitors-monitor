@@ -81,15 +81,24 @@ def collect(email, password):
         print('Task 6: page path ' + urlsplit(page.url).path)
         if page.locator('input[type="password"]').count():
             print('Task 6: signing in with Actions secrets')
-            print('Task 6: login field types ' + json.dumps(page.locator('input').evaluate_all('(nodes) => nodes.map(n => n.type)')))
-            print('Task 6: login button labels ' + json.dumps(page.locator('button').all_text_contents(), ensure_ascii=False))
-            page.locator('input[type="text"], input[type="email"]').first.fill(email)
+            page.locator('input[type="text"], input[type="email"]').first.fill(email.strip())
             print('Task 6: account field filled')
             page.locator('input[type="password"]').fill(password)
             print('Task 6: password field filled')
             page.get_by_role('button', name='Войти', exact=True).click()
             print('Task 6: login submitted')
-            page.get_by_role('button', name='Выйти', exact=True).wait_for()
+            try:
+                page.get_by_role('button', name='Выйти', exact=True).wait_for()
+            except Exception:
+                flags = page.locator('body').evaluate('''(body) => ({
+                    invalidCredentials: /неверн|неправильн|invalid credentials|incorrect password/i.test(body.innerText),
+                    requiredField: /обязательн|заполните|is required/i.test(body.innerText),
+                    captcha: /captcha|капч|робот|verify you are human/i.test(body.innerText),
+                    loginForm: !!body.querySelector('input[type="password"]')
+                })''')
+                print('Task 6: sign-in outcome ' + json.dumps(flags))
+                print('Task 6: final page path ' + urlsplit(page.url).path)
+                raise RuntimeError('Website did not confirm sign-in; baseline and completion were not saved') from None
             print('Task 6: sign-in confirmed')
             page.goto(URL, wait_until='domcontentloaded')
         print('Task 6: reading ticket table')
