@@ -1,0 +1,26 @@
+name: Healthchecks Telegram-only notifications
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/healthchecks-telegram-only.yml']
+permissions:
+  contents: read
+concurrency:
+  group: healthchecks-setup
+  cancel-in-progress: false
+jobs:
+  configure-channels:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Remove email assignments and verify existing Telegram delivery channels
+        env:
+          HEALTHCHECKS_API_KEY: ${{ secrets.HEALTHCHECKS_API_KEY }}
+        run: python -m workflow_support.healthchecks_telegram_only
