@@ -15,6 +15,20 @@ TZ = ZoneInfo('Asia/Almaty')
 URL = 'https://admin.zakazbiletov.kz/organizer/tickets'
 
 
+def secure_document(route):
+    """Strengthen transport for the site's mistakenly HTTP-based login client.
+
+    Keep all existing CSP restrictions and ask Chromium to upgrade insecure
+    requests to HTTPS. Never ignore certificate errors or allow mixed content.
+    """
+    response = route.fetch()
+    headers = dict(response.headers)
+    policy = headers.get('content-security-policy', '')
+    if not re.search(r'(?:^|;)\s*upgrade-insecure-requests(?:\s|;|$)', policy):
+        headers['content-security-policy'] = (policy + '; ' if policy else '') + 'upgrade-insecure-requests'
+    route.fulfill(response=response, headers=headers)
+
+
 def identify(cells):
     if len(cells) != 7 or not cells[4].strip():
         raise RuntimeError('Ticket row has no stable identifier; results were not saved')
@@ -73,6 +87,8 @@ def collect(email, password):
     with sync_playwright() as p:
         browser = p.chromium.launch()
         context = browser.new_context(locale='ru-RU')
+        context.route('https://admin.zakazbiletov.kz/**',
+                      lambda route: secure_document(route) if route.request.is_navigation_request() else route.continue_())
         page = context.new_page()
         page.set_default_timeout(30000)
         login_responses = []

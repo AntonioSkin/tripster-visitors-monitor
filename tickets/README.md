@@ -4,6 +4,9 @@ Runs daily at 11:00 Asia/Almaty (06:00 UTC), on manual dispatch, and when its im
 Uses Actions secrets `ZAKAZBILETOV_EMAIL`, `ZAKAZBILETOV_PASSWORD`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`.
 
 Signs in through the normal website and reads every page in `/organizer/tickets`.
+The site's login client uses an HTTP endpoint on its HTTPS page. Document responses
+retain existing security restrictions and add CSP `upgrade-insecure-requests` so
+the browser uses HTTPS; mixed content and invalid certificates remain blocked.
 The first successful collection establishes a baseline without notifying about historical tickets.
 Subsequent collections notify the existing Telegram bot only about unseen QR identifiers.
 Scanning a ticket or removing and reintroducing it does not make it new.

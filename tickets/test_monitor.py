@@ -3,8 +3,8 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
-from tickets.monitor import identify, plan, run
+from unittest.mock import Mock, patch
+from tickets.monitor import identify, plan, run, secure_document
 
 
 def row(qr='private-qr', scanned='Нет'):
@@ -12,6 +12,14 @@ def row(qr='private-qr', scanned='Нет'):
 
 
 class TicketTests(unittest.TestCase):
+    def test_https_upgrade_preserves_existing_security_policy(self):
+        route = Mock()
+        route.fetch.return_value.headers = {'content-security-policy': "default-src 'self'", 'other': 'kept'}
+        secure_document(route)
+        headers = route.fulfill.call_args.kwargs['headers']
+        self.assertEqual(headers['content-security-policy'], "default-src 'self'; upgrade-insecure-requests")
+        self.assertEqual(headers['other'], 'kept')
+
     def test_baseline_then_new_and_old_status_change(self):
         seen, new = plan(None, [row()])
         self.assertEqual(new, [])
