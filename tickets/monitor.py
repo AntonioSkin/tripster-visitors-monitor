@@ -75,6 +75,12 @@ def collect(email, password):
         context = browser.new_context(locale='ru-RU')
         page = context.new_page()
         page.set_default_timeout(30000)
+        login_responses = []
+        def observe_login(response):
+            # Record status codes only; response bodies can contain credentials.
+            if response.request.method == 'POST':
+                login_responses.append(response.status)
+        page.on('response', observe_login)
         print('Task 6: opening ticket page')
         page.goto(URL, wait_until='domcontentloaded')
         page.locator('input[type="password"], table').first.wait_for()
@@ -85,6 +91,10 @@ def collect(email, password):
             print('Task 6: account field filled')
             page.locator('input[type="password"]').fill(password)
             print('Task 6: password field filled')
+            print('Task 6: form validity ' + json.dumps(page.locator('input').evaluate_all('''(inputs) => inputs.filter(n => n.type !== 'checkbox').map(n => ({
+                type: n.type, valid: n.checkValidity(), missing: n.validity.valueMissing,
+                typeMismatch: n.validity.typeMismatch, patternMismatch: n.validity.patternMismatch
+            }))''')))
             page.get_by_role('button', name='Войти', exact=True).click()
             print('Task 6: login submitted')
             try:
@@ -97,6 +107,7 @@ def collect(email, password):
                     loginForm: !!body.querySelector('input[type="password"]')
                 })''')
                 print('Task 6: sign-in outcome ' + json.dumps(flags))
+                print('Task 6: sign-in POST status codes ' + json.dumps(login_responses))
                 print('Task 6: final page path ' + urlsplit(page.url).path)
                 raise RuntimeError('Website did not confirm sign-in; baseline and completion were not saved') from None
             print('Task 6: sign-in confirmed')
