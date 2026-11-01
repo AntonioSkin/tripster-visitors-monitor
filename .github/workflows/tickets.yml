@@ -1,0 +1,76 @@
+name: Task 6 - new Zakazbiletov tickets
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'tickets/**'
+      - '.github/workflows/tickets.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tripster-task-6
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      changed: ${{ steps.package.outputs.changed }}
+      artifact: ${{ steps.package.outputs.artifact }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - run: python -m playwright install --with-deps chromium
+      - name: Test ticket identity and delivery retry
+        run: python -m unittest tickets.test_monitor -v
+      - name: Check all ticket pages and notify about new tickets
+        env:
+          ZAKAZBILETOV_EMAIL: ${{ secrets.ZAKAZBILETOV_EMAIL }}
+          ZAKAZBILETOV_PASSWORD: ${{ secrets.ZAKAZBILETOV_PASSWORD }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python -m tickets.monitor
+      - name: Package private-data-free results
+        id: package
+        run: python -m workflow_support.persistence export --task 6 --directory "$RUNNER_TEMP/monitor-bundle"
+      - uses: actions/upload-artifact@v4
+        if: steps.package.outputs.changed == 'true'
+        with:
+          name: ${{ steps.package.outputs.artifact }}
+          path: ${{ runner.temp }}/monitor-bundle
+          retention-days: 7
+  save:
+    needs: collect
+    if: needs.collect.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: monitor-results-write
+      queue: max
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.collect.outputs.artifact }}
+          path: ${{ runner.temp }}/monitor-results
+      - name: Persist ticket hashes and completion receipt
+        run: python -m workflow_support.persistence apply --task 6 --directory "$RUNNER_TEMP/monitor-results"

@@ -14,8 +14,9 @@ PREFIXES = {
     '3': ('data/calendar_history/',),
     '4': ('data/fx/',),
     '5': ('data/closures/',),
+    '6': ('data/tickets/',),
 }
-FILES = {'1': {'data/daily.csv', 'reports/latest.md'}, '2': {'reports/seats.md'}, '3': set(), '4': set(), '5': set()}
+FILES = {'1': {'data/daily.csv', 'reports/latest.md'}, '2': {'reports/seats.md'}, '3': set(), '4': set(), '5': set(), '6': set()}
 
 
 class DataConflict(RuntimeError):
