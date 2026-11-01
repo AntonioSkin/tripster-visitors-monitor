@@ -7,6 +7,7 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from urllib.request import Request, urlopen
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -74,13 +75,19 @@ def collect(email, password):
         context = browser.new_context(locale='ru-RU')
         page = context.new_page()
         page.set_default_timeout(30000)
-        page.goto(URL, wait_until='networkidle')
-        if '/login' in page.url:
+        print('Task 6: opening ticket page')
+        page.goto(URL, wait_until='domcontentloaded')
+        page.locator('input[type="password"], table').first.wait_for()
+        print('Task 6: page path ' + urlsplit(page.url).path)
+        if page.locator('input[type="password"]').count():
+            print('Task 6: signing in with Actions secrets')
             page.locator('input[type="text"], input[type="email"]').first.fill(email)
             page.locator('input[type="password"]').fill(password)
             page.get_by_role('button', name='Войти', exact=True).click()
             page.get_by_role('button', name='Выйти', exact=True).wait_for()
-            page.goto(URL, wait_until='networkidle')
+            print('Task 6: sign-in confirmed')
+            page.goto(URL, wait_until='domcontentloaded')
+        print('Task 6: reading ticket table')
         rows = scan(page)
         browser.close()
         return rows
@@ -122,7 +129,7 @@ def run(root=ROOT, collector=collect, sender=notify, now=None):
     seen, new = plan(previous, rows)
     if new:
         sender(new)
-    checked = now.astimezone(TZ).isoformat()
+    checked = datetime.now(TZ).isoformat()
     state = {'version': 1, 'seen': sorted(seen), 'last_success': checked}
     receipt = {'ok': True, 'completed_at': checked, 'baseline': previous is None,
                'tickets_count': len(rows), 'new_count': len(new), 'alert_sent': bool(new)}
@@ -139,5 +146,5 @@ if __name__ == '__main__':
         run()
     except Exception as exc:
         # Playwright errors can include private row text; keep logs redacted.
-        print(str(exc) if isinstance(exc, RuntimeError) else 'Task 6 failed; private browser details suppressed')
+        print(str(exc) if isinstance(exc, RuntimeError) else f'Task 6 failed ({type(exc).__name__}); private browser details suppressed')
         raise SystemExit(1) from None
