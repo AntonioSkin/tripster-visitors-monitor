@@ -79,7 +79,9 @@ def collect(email, password):
         def observe_login(response):
             # Record status codes only; response bodies can contain credentials.
             if response.request.method == 'POST':
-                login_responses.append(response.status)
+                path = urlsplit(response.url).path
+                safe_path = re.sub(r'[0-9a-f]{16,}|[0-9]{5,}', '<id>', path, flags=re.I)
+                login_responses.append({'status': response.status, 'path': safe_path})
         page.on('response', observe_login)
         print('Task 6: opening ticket page')
         page.goto(URL, wait_until='domcontentloaded')
@@ -101,7 +103,7 @@ def collect(email, password):
                 page.get_by_role('button', name='Выйти', exact=True).wait_for()
             except Exception:
                 flags = page.locator('body').evaluate('''(body) => ({
-                    invalidCredentials: /неверн|неправильн|invalid credentials|incorrect password/i.test(body.innerText),
+                    invalidCredentials: /неверн|неправильн|invalid credentials|incorrect password|credentials.*(?:match|invalid)|не соответствуют|не совпадают|ошибка авторизации|authentication failed/i.test(body.innerText),
                     requiredField: /обязательн|заполните|is required/i.test(body.innerText),
                     captcha: /captcha|капч|робот|verify you are human/i.test(body.innerText),
                     loginForm: !!body.querySelector('input[type="password"]')
