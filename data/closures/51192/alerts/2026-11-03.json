@@ -1,0 +1,26 @@
+[
+  {
+    "key": "2026-11-03T05:15",
+    "date": "2026-11-03",
+    "time": "05:15",
+    "available": null,
+    "previous": 12,
+    "previous_observed_at": "2026-11-03T02:44:44+05:00",
+    "kind": "unpublished",
+    "detected_at": "2026-11-03T04:36:53+05:00",
+    "event_id": "18d8d39ed4cce87b841091b1bae63d886c4b40bf3ad06df150461caf2a1ebf08",
+    "sent_at": "2026-11-03T04:36:54.289986+05:00"
+  },
+  {
+    "key": "2026-11-03T05:30",
+    "date": "2026-11-03",
+    "time": "05:30",
+    "available": null,
+    "previous": 8,
+    "previous_observed_at": "2026-11-03T02:44:44+05:00",
+    "kind": "unpublished",
+    "detected_at": "2026-11-03T04:36:53+05:00",
+    "event_id": "af630bffb3c115c090b034f6391aa7ad012a1518392bdb37848435094aaa1b78",
+    "sent_at": "2026-11-03T04:36:54.289986+05:00"
+  }
+]
