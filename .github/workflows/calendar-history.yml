@@ -1,8 +1,9 @@
-name: Twice-daily full calendar history
+name: Three-hour full calendar history
 on:
   schedule:
-    - cron: '0 6,15 * * *'
-    - cron: '20,40 6,7,15,16 * * *'
+    # Asia/Almaty (UTC+5): 08:00, 11:00, 14:00, 17:00, 20:00, 23:00.
+    - cron: '0 3,6,9,12,15,18 * * *'
+    - cron: '20,40 3,4,6,7,9,10,12,13,15,16,18 * * *'
   workflow_dispatch:
   push:
     branches: [main]

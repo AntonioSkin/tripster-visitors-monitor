@@ -36,7 +36,7 @@ class JointTests(unittest.TestCase):
         self.assertEqual([t['id'] for t in GROUPS[1]['tours']], [57434,85543,55575,54971])
 
 
-class TwiceDailyTests(unittest.TestCase):
+class HistoricalScheduleTests(unittest.TestCase):
     def test_schedule_and_receipts(self):
         from datetime import datetime, timezone
         from pathlib import Path
@@ -82,3 +82,40 @@ class TwiceDailyTests(unittest.TestCase):
             (directory / 'telegram/2026-10-27.json').write_text('{}')
             self.assertIsNone(due_observation(datetime(2026,10,27,14,tzinfo=TZ), directory))
             self.assertEqual(due_observation(datetime(2026,10,27,20,tzinfo=TZ), directory), '2026-10-27T20:00')
+
+
+class ThreeHourlyTests(unittest.TestCase):
+    def test_all_slots_in_local_time_and_utc(self):
+        from datetime import datetime, timezone
+        from calendar_history.combined import observation_id, TZ
+        for hour in (8, 11, 14, 17, 20, 23):
+            at = datetime(2026, 11, 3, hour, tzinfo=TZ)
+            expected = f'2026-11-03T{hour:02}:00'
+            with self.subTest(hour=hour):
+                self.assertEqual(observation_id(at), expected)
+                self.assertEqual(observation_id(at.astimezone(timezone.utc)), expected)
+                self.assertEqual(observation_id(at.replace(minute=59, second=59)), expected)
+        self.assertIsNone(observation_id(datetime(2026, 11, 3, 7, 59, 59, tzinfo=TZ)))
+        self.assertIsNone(observation_id(datetime(2026, 11, 4, 0, tzinfo=TZ)))
+
+    def test_one_delivery_per_slot_and_next_slot_is_due(self):
+        from datetime import datetime
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from calendar_history.combined import due_observation, TZ
+        with TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            (directory / 'telegram').mkdir()
+            for hour in (8, 11, 14, 17, 20, 23):
+                at = datetime(2026, 11, 3, hour, tzinfo=TZ)
+                obs = f'2026-11-03T{hour:02}:00'
+                self.assertEqual(due_observation(at, directory), obs)
+                (directory / 'telegram' / f'{obs}.json').write_text('{}')
+                self.assertIsNone(due_observation(at.replace(minute=40), directory))
+
+    def test_rollout_does_not_invent_earlier_missed_slots(self):
+        from datetime import datetime
+        from calendar_history.combined import observation_id, TZ
+        self.assertIsNone(observation_id(datetime(2026, 11, 2, 8, tzinfo=TZ)))
+        self.assertEqual(observation_id(datetime(2026, 11, 2, 17, tzinfo=TZ)), '2026-11-02T11:00')
+        self.assertEqual(observation_id(datetime(2026, 11, 2, 23, tzinfo=TZ)), '2026-11-02T23:00')

@@ -6,6 +6,30 @@ from datetime import datetime
 from health.check import assess, notifications, TZ
 
 class HealthTests(unittest.TestCase):
+    def test_three_hour_deadlines_and_midnight_rollover(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.assertNotIn('3:2026-11-03T08:00', assess(root, datetime(2026,11,3,9,59,tzinfo=TZ)))
+            self.assertIn('3:2026-11-03T08:00', assess(root, datetime(2026,11,3,10,tzinfo=TZ)))
+            self.assertNotIn('3:2026-11-03T14:00', assess(root, datetime(2026,11,3,15,59,tzinfo=TZ)))
+            self.assertIn('3:2026-11-03T14:00', assess(root, datetime(2026,11,3,16,tzinfo=TZ)))
+            self.assertNotIn('3:2026-11-03T23:00', assess(root, datetime(2026,11,4,0,59,tzinfo=TZ)))
+            checks = assess(root, datetime(2026,11,4,1,tzinfo=TZ))
+            self.assertIn('3:2026-11-03T23:00', checks)
+            self.assertNotIn('4:2026-11-03T23:00', checks)
+            self.assertNotIn('3:2026-11-02T17:00', assess(root, datetime(2026,11,3,10,tzinfo=TZ)))
+
+    def test_late_last_slot_uses_next_day_deadline(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            receipt = root / 'data/calendar_history/joint/telegram/2026-11-03T23:00.json'
+            receipt.parent.mkdir(parents=True)
+            receipt.write_text(json.dumps({'sent_at': '2026-11-04T00:30:00+05:00'}))
+            now = datetime(2026,11,4,1,30,tzinfo=TZ)
+            self.assertNotIn('3:2026-11-03T23:00:late', assess(root, now))
+            receipt.write_text(json.dumps({'sent_at': now.isoformat()}))
+            self.assertIn('3:2026-11-03T23:00:late', assess(root, now))
+
     def test_deadlines_and_retry_grace(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

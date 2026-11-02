@@ -48,6 +48,17 @@ class DispatchTests(unittest.TestCase):
         self.assertEqual(api.call_args_list[-1].args,
                          ('/actions/workflows/fx.yml/dispatches', {'ref': 'main'}))
 
+    def test_three_hour_calendar_slot_does_not_change_fx_schedule(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            now = datetime(2026, 11, 3, 14, 20, tzinfo=TZ)
+            self.save(root, 'data/calendar_history/joint/telegram/2026-11-03T11:00.json', {})
+            self.save(root, 'data/fx/completed/2026-11-03T11:00.json', {'alert_sent': False})
+            self.assertIn('3', due_tasks(root, now))
+            self.assertNotIn('4', due_tasks(root, now))
+            self.save(root, 'data/calendar_history/joint/telegram/2026-11-03T14:00.json', {})
+            self.assertNotIn('3', due_tasks(root, now))
+
     def test_one_failed_dispatch_does_not_block_other_tasks(self):
         api = Mock(side_effect=[RuntimeError('HTTP 500'), {'workflow_runs': []}, {}])
         with self.assertRaisesRegex(RuntimeError, 'tasks 2'):

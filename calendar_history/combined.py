@@ -8,6 +8,7 @@ from calendar_history.monitor import TOURS, ROOT, TZ, build_rows, write_csv
 from seats.monitor import collect, save_json
 from monitor import write_text
 from telegram_report import send_message
+from calendar_history.schedule import observation_id
 
 DIRECTORY = ROOT / 'data/calendar_history/joint'
 URL = 'https://github.com/AntonioSkin/tripster-visitors-monitor/blob/main/data/calendar_history/yulia/summary.csv'
@@ -104,13 +105,6 @@ def report_text(current):
     for group in GROUPS:
         lines.extend([group['name'], group_url(group)])
     return '\n'.join(lines)
-
-
-def observation_id(now):
-    now = now.astimezone(TZ)
-    if now.hour < 11:
-        return None
-    return now.date().isoformat() + ('T20:00' if now.hour >= 20 else 'T11:00')
 
 
 def due_observation(now, directory=DIRECTORY):

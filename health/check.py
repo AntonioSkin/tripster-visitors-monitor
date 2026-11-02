@@ -7,6 +7,7 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 from monitor import ROOT, TZ
 from telegram_report import send_message
+from calendar_history.schedule import observation_hours
 
 
 def read(root, path):
@@ -28,10 +29,12 @@ def assess(root, now):
             delivered = bool(read(root, f'data/telegram/{ds}.json'))
             checks[f'1:{ds}'] = ('Задача 1 — посетители', complete and delivered,
                 f'{ds}, до 13:00', 'сбор данных' if not complete else 'доставка в Telegram')
-        for hour, deadline in ((11, 13), (20, 22)):
-            if now < datetime.combine(day, datetime.min.time(), TZ).replace(hour=deadline):
+        for hour in observation_hours(day):
+            start = datetime.combine(day, datetime.min.time(), TZ).replace(hour=hour)
+            deadline = start + timedelta(hours=2)
+            if now < deadline:
                 continue
-            obs = f'{ds}T{hour}:00'
+            obs = start.strftime('%Y-%m-%dT%H:%M')
             receipt = read(root, f'data/calendar_history/joint/telegram/{obs}.json')
             if hour == 11:
                 receipt = receipt or read(root, f'data/calendar_history/joint/telegram/{ds}.json')
@@ -39,7 +42,7 @@ def assess(root, now):
             paths += [f'data/calendar_history/dmitry/tours/{i}/measurements/{obs}.json' for i in (57434,85543,55575,54971)]
             complete = all((root / p).exists() for p in paths)
             checks[f'3:{obs}'] = ('Задача 3 — Юлия и Дмитрий', bool(receipt),
-                f'{ds}, замер {hour}:00, попытки до {deadline}:00',
+                f'{ds}, замер {hour:02}:00, попытки до {deadline:%d-%m-%Y %H:%M}',
                 'доставка в Telegram' if complete else 'сбор данных')
     from fx.monitor import ENABLED_FROM
     for offset in (1, 0):
@@ -75,7 +78,7 @@ def assess(root, now):
         elif key.startswith('3:'):
             receipt = read(root, f'data/calendar_history/joint/telegram/{key[2:]}.json')
             stamp = receipt.get('sent_at')
-            deadline = day.replace(hour=22 if 'T20:' in key else 13)
+            deadline = datetime.fromisoformat(key[2:]).replace(tzinfo=TZ) + timedelta(hours=2)
         else:
             receipt = read(root, f'data/fx/completed/{key[2:]}.json')
             stamp = receipt.get('completed_at', receipt.get('checked_at'))

@@ -3,7 +3,7 @@ on:
   schedule:
     - cron: '5,20,35,50 * * * *'
   workflow_run:
-    workflows: ['Daily visitors', 'Tripster seat alerts', 'Twice-daily full calendar history', 'RUB KZT monitoring', 'Competitor seat closures']
+    workflows: ['Daily visitors', 'Tripster seat alerts', 'Three-hour full calendar history', 'RUB KZT monitoring', 'Competitor seat closures']
     types: [completed]
   workflow_dispatch:
   push:
