@@ -75,23 +75,17 @@ def report_text(current):
                     if r['daily'] is not None and r['daily'] != 0})
     for departure in dates:
         lines.append(datetime.fromisoformat(departure).strftime('%d.%m.%Y') + ':')
-        values = []
         for group in GROUPS:
             row = next((r for r in current[group['key']] if r['departure'] == departure), None)
             delta = row['daily'] if row else None
+            total = row['total'] if row else None
+            cumulative = str(total) if total is not None else '—'
             if delta is None:
-                lines.append(group['name'] + ' — нет сравнения')
+                lines.append(f"{group['name']} — нет сравнения (всего {cumulative})")
                 continue
-            values.append(delta)
-            if delta == 0:
-                lines.append(group['name'] + ' — без изменений')
-            else:
-                action = 'продано' if delta > 0 else 'добавлено'
-                lines.append(f"{group['name']} — {action} {abs(delta)} {places_word(abs(delta))}")
-        if len(values) == len(GROUPS):
-            total = sum(values)
-            action = 'продано' if total >= 0 else 'добавлено'
-            lines.append(f'Всего — {action} {abs(total)} {places_word(abs(total))}')
+            action = 'продано' if delta >= 0 else 'добавлено'
+            lines.append(f"{group['name']} — {action} {abs(delta)} {places_word(abs(delta))} "
+                         f"(всего {cumulative})")
         lines.append('')
     if not dates:
         compared = [group['name'] for group in GROUPS if any(
