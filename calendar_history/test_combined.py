@@ -17,9 +17,9 @@ class JointTests(unittest.TestCase):
         yulia = merge_rows([history([('08:00',12),('09:00',12)], [('08:00',7)])], '2026-10-28')
         dmitry = merge_rows([history([('08:00',12)], [('08:00',9)])], '2026-10-28')
         text = report_text({'yulia': yulia, 'dmitry': dmitry})
-        self.assertIn('Юлия — продано 5 мест', text)
-        self.assertIn('Дмитрий — продано 3 места', text)
-        self.assertIn('Всего — продано 8 мест', text)
+        self.assertIn('Юлия — продано 5 мест (всего —)', text)
+        self.assertIn('Дмитрий — продано 3 места (всего 3)', text)
+        self.assertNotIn('Всего —', text)
         self.assertEqual(text.count('29.10.2026:'), 1)
 
     def test_closure_only_and_new_time(self):
@@ -29,8 +29,35 @@ class JointTests(unittest.TestCase):
     def test_initial_does_not_invent_total(self):
         rows = merge_rows([history([('08:00',12)], [('08:00',10)])], '2026-10-28')
         text = report_text({'yulia': rows, 'dmitry': []})
-        self.assertIn('Дмитрий — нет сравнения', text)
+        self.assertIn('Дмитрий — нет сравнения (всего —)', text)
         self.assertNotIn('Всего —', text)
+
+    def test_each_guide_keeps_total_since_first_observation(self):
+        from calendar_history.combined import interval_rows
+        observations = ('2026-11-01T11:00', '2026-11-01T20:00', '2026-11-02T11:00')
+
+        def latest(counts):
+            snapshots = [
+                {'date_from': observed[:10], 'checked_at': observed + ':00+05:00',
+                 'observation_id': observed,
+                 'slots': [{'key': '2026-12-04T08:00', 'available': count}]}
+                for observed, count in zip(observations, counts)
+            ]
+            return merge_rows([interval_rows(snapshots)], observations[-1])
+
+        for counts, cumulative in (([12, 12, 12], 0), ([12, 9, 9], 3)):
+            with self.subTest(dmitry_counts=counts):
+                text = report_text({'yulia': latest([12, 10, 8]), 'dmitry': latest(counts)})
+                self.assertIn('Юлия — продано 2 места (всего 4)', text)
+                self.assertIn(f'Дмитрий — продано 0 мест (всего {cumulative})', text)
+                self.assertNotIn('Всего —', text)
+
+    def test_added_places_reduce_the_same_guide_total(self):
+        yulia = merge_rows([history([('08:00',12)], [('08:00',14)])], '2026-10-28')
+        dmitry = merge_rows([history([('08:00',12)], [('08:00',12)])], '2026-10-28')
+        text = report_text({'yulia': yulia, 'dmitry': dmitry})
+        self.assertIn('Юлия — добавлено 2 места (всего -2)', text)
+        self.assertIn('Дмитрий — продано 0 мест (всего 0)', text)
 
     def test_configuration(self):
         self.assertEqual([t['id'] for t in GROUPS[1]['tours']], [57434,85543,55575,54971])
