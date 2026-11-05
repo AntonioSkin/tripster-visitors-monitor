@@ -1,6 +1,6 @@
 {
   "experience_id": 57434,
-  "checked_at": "2026-11-05T16:34:07+05:00",
+  "checked_at": "2026-11-05T17:12:00+05:00",
   "timezone": "Asia/Aqtau",
   "date_from": "2026-11-05",
   "date_to": "2026-12-04",
@@ -9,7 +9,7 @@
       "key": "2026-11-06T05:30",
       "date": "2026-11-06",
       "time": "05:30",
-      "available": 11
+      "available": 1
     },
     {
       "key": "2026-11-08T05:30",
