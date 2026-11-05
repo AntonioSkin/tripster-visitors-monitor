@@ -27,6 +27,18 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(rows[4]['daily_decrease'], -2)
         self.assertIsNone(rows[5]['remaining'])
         self.assertIsNone(rows[5]['daily_decrease'])
+        self.assertEqual(rows[5]['total_decrease'], 12)
+        self.assertEqual(rows[5]['final_remaining'], 0)
+
+    def test_daily_history_retains_last_known_count_after_closure(self):
+        rows = build_rows([snap('2026-10-26', {'2026-10-29': 12}),
+                           snap('2026-10-27', {'2026-10-29': 7}),
+                           snap('2026-10-28', {}),
+                           snap('2026-10-29', {})])
+        for row in rows[-2:]:
+            self.assertEqual(row['total_decrease'], 5)
+            self.assertEqual(row['final_remaining'], 7)
+            self.assertIsNone(row['daily_decrease'])
 
     def test_gap_is_not_called_daily_sales(self):
         rows = build_rows([snap('2026-10-26', {'2027-04-25': 12}), snap('2026-10-28', {'2027-04-25': 9})])
