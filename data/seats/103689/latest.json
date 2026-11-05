@@ -1,9 +1,9 @@
 {
   "experience_id": 103689,
-  "checked_at": "2026-11-05T23:00:54+05:00",
+  "checked_at": "2026-11-06T00:03:04+05:00",
   "timezone": "Asia/Aqtau",
-  "date_from": "2026-11-05",
-  "date_to": "2026-12-04",
+  "date_from": "2026-11-06",
+  "date_to": "2026-12-05",
   "slots": [
     {
       "key": "2026-11-07T05:30",
@@ -172,10 +172,15 @@
       "date": "2026-12-04",
       "time": "05:30",
       "available": 19
+    },
+    {
+      "key": "2026-12-05T05:30",
+      "date": "2026-12-05",
+      "time": "05:30",
+      "available": 19
     }
   ],
   "dates_without_slots": [
-    "2026-11-05",
     "2026-11-06"
   ],
   "source": "https://experience.tripster.ru/api/web/v1/experiences/103689/schedule/"
