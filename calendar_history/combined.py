@@ -33,6 +33,7 @@ def merge_rows(by_tour, day):
         result.append({'observed':day, 'departure':departure,
             'initial':format_values([[r['initial'] for r in g] for g in groups]),
             'remaining':format_values([[r['remaining'] for r in g] for g in groups]),
+            'final_remaining':format_values([[r['final_remaining'] for r in g] for g in groups]),
             'daily':sum(deltas) if deltas else None,
             'total':sum(totals) if totals and all(v is not None for v in totals) else None,
             'changed':any(v is not None and v != 0 for v in deltas)})
@@ -41,13 +42,22 @@ def merge_rows(by_tour, day):
 
 def save_table(path, rows):
     out=io.StringIO(); writer=csv.writer(out)
-    writer.writerow(['Дата выезда','Остаток','Чистое уменьшение с начала','Чистое уменьшение с прошлого замера','Дата замера','Начальный остаток'])
+    writer.writerow(['Дата выезда','Остаток','Чистое уменьшение с начала','Чистое уменьшение с прошлого замера','Дата замера','Начальный остаток','Конечный остаток'])
     for row in rows:
         departure = datetime.fromisoformat(row['departure']).strftime('%d-%m-%Y')
         observed = datetime.fromisoformat(row['observed']).strftime('%d-%m-%Y')
         writer.writerow([departure] + [row[k] if row[k] is not None else '—'
-                                      for k in ('remaining','total','daily')] + [observed, row['initial'] if row['initial'] is not None else '—'])
+                                      for k in ('remaining','total','daily')] + [observed, row['initial'] if row['initial'] is not None else '—', row['final_remaining']])
     write_text(path,'\ufeff'+out.getvalue())
+
+
+def save_group_tables(directory, all_rows):
+    history = []
+    for observed in sorted({r['observed'] for rows in all_rows for r in rows}):
+        history.extend(merge_rows(all_rows, observed))
+    latest = {r['departure']: r for r in history}
+    save_table(directory / 'history.csv', history)
+    save_table(directory / 'summary.csv', [latest[k] for k in sorted(latest)])
 
 
 
@@ -114,28 +124,7 @@ def due_observation(now, directory=DIRECTORY):
 
 
 def interval_rows(snapshots):
-    baselines, previous, rows = {}, {}, []
-    for snapshot in sorted(snapshots, key=lambda s: s.get('checked_at', s['date_from'])):
-        day = snapshot['date_from']
-        observed = snapshot.get('observation_id', day)
-        current = {s['key']: s for s in snapshot['slots']}
-        for key, slot in current.items():
-            baselines.setdefault(key, (observed, slot['available']))
-        for key in sorted(baselines):
-            if key[:10] < day:
-                continue
-            first_seen, initial = baselines[key]
-            slot, old = current.get(key), previous.get(key)
-            remaining = slot['available'] if slot else None
-            rows.append({
-                'observed': observed, 'departure': key[:10], 'time': key[11:],
-                'first_seen': first_seen, 'initial': initial, 'remaining': remaining,
-                'daily_decrease': old['available'] - remaining if old and slot else None,
-                'total_decrease': initial - remaining if slot else None,
-                'status': 'observed' if slot else 'not_published',
-            })
-        previous = current
-    return rows
+    return build_rows(snapshots, intervals=True)
 
 
 def run():
@@ -175,12 +164,7 @@ def run():
                 failed.append(tour['id'])
         if len(all_rows) != len(group['tours']):
             continue
-        history = []
-        for observed in sorted({r['observed'] for rows in all_rows for r in rows}):
-            history.extend(merge_rows(all_rows, observed))
-        latest = {r['departure']: r for r in history}
-        save_table(group_directory / 'history.csv', history)
-        save_table(group_directory / 'summary.csv', [latest[k] for k in sorted(latest)])
+        save_group_tables(group_directory, all_rows)
         current[group['key']] = merge_rows(all_rows, observation)
     if failed:
         save_json(DIRECTORY / 'status.json', {'ok': False, 'failed': failed, 'checked_at': now.isoformat()})

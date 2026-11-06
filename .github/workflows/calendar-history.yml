@@ -33,7 +33,9 @@ jobs:
         with:
           python-version: '3.12'
       - name: Test history rules
-        run: python -m unittest calendar_history.test_monitor calendar_history.test_combined seats.test_monitor -v
+        run: python -m unittest calendar_history.test_monitor calendar_history.test_combined calendar_history.test_rebuild seats.test_monitor -v
+      - name: Rebuild saved history tables
+        run: python -m calendar_history.rebuild
       - name: Check measurement gate
         id: gate
         run: |
