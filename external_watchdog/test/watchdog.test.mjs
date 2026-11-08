@@ -248,6 +248,18 @@ test('partial active-run lists fail closed', async () => {
   await assert.rejects(client.hasActive(TASKS[0]), /active_run_list_incomplete/);
 });
 
+test('manual redirect handling refuses the response without forwarding the credential', async () => {
+  const calls = [];
+  const client = new GitHubClient('test-only', async (url, init) => {
+    calls.push({url, init});
+    return new Response(null, {status:302, headers:{Location:'https://must-never-follow.invalid/'}});
+  });
+  await assert.rejects(client.head(TASKS[0].repo), /^Error: github_http_302$/);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].init.redirect, 'manual');
+  assert.equal(new URL(calls[0].url).hostname, 'api.github.com');
+});
+
 test('redacts response content and network errors; only 404 denotes absent file', async () => {
   const forbidden = new GitHubClient('test-only', async () => new Response('private contents', {status:403}));
   await assert.rejects(forbidden.file(TASKS[0].repo,'data/a.json','main'), /^Error: github_http_403$/);

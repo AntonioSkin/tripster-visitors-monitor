@@ -13,6 +13,9 @@ const probe = `
       let receiverGuard = false;
       try { await legacy.fetcher('https://api.github.com/repos/AntonioSkin/tripster-visitors-monitor/git/ref/heads/main'); }
       catch (error) { receiverGuard = error instanceof TypeError && error.message.startsWith('Illegal invocation'); }
+      let unsupportedRedirectGuard = false;
+      try { await fetch('https://api.github.com/repos/AntonioSkin/tripster-visitors-monitor/git/ref/heads/main', {redirect:'error'}); }
+      catch (error) { unsupportedRedirectGuard = error instanceof TypeError && error.message.startsWith('Invalid redirect value'); }
       const client = new GitHubClient(null);
       const transport = client.fetcher;
       let transportError;
@@ -23,7 +26,10 @@ const probe = `
       let head;
       try { head = await client.head(REPOS[0]); }
       catch (error) { return Response.json({receiverGuard, transportError, error:String(error)}, {status:500}); }
-      return Response.json({receiverGuard, head, calls:client.calls});
+      let redirectRefused = false;
+      try { await client.request(REPOS[0], '/redirect-test'); }
+      catch (error) { redirectRefused = error.message === 'github_http_302'; }
+      return Response.json({receiverGuard, unsupportedRedirectGuard, head, redirectRefused, calls:client.calls});
     }
   };
 `;
@@ -41,6 +47,9 @@ const runtime = new Miniflare(convertV4MiniflareOptions({
       requests++;
       assert.equal(request.method, 'GET');
       assert.equal(request.headers.get('Authorization'), null);
+      if (request.url === 'https://api.github.com/repos/AntonioSkin/tripster-visitors-monitor/redirect-test') {
+        return new LocalResponse(null, {status:302, headers:{Location:'https://must-never-follow.invalid/'}});
+      }
       assert.equal(request.url, 'https://api.github.com/repos/AntonioSkin/tripster-visitors-monitor/git/ref/heads/main');
       return LocalResponse.json({object:{sha:head}});
     },
@@ -50,9 +59,9 @@ try {
   const response = await runtime.dispatchFetch('http://localhost/test');
   const body = await response.text();
   assert.equal(response.status, 200, body);
-  assert.deepEqual(JSON.parse(body), {receiverGuard:true, head, calls:1});
-  assert.equal(requests, 1);
-  console.log('WORKERD_FETCH_VERIFIED: legacy receiver failure reproduced; default GitHubClient read succeeds; one local GET, no credentials or external network.');
+  assert.deepEqual(JSON.parse(body), {receiverGuard:true, unsupportedRedirectGuard:true, head, redirectRefused:true, calls:2});
+  assert.equal(requests, 2);
+  console.log('WORKERD_FETCH_VERIFIED: both old runtime failures reproduced; default GitHubClient read succeeds; redirects refused; two local GETs, no credentials or external network.');
 } finally {
   await runtime.dispose();
 }

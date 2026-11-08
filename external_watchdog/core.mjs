@@ -119,7 +119,9 @@ export class GitHubClient {
     let response;
     try {
       response = await this.fetcher(`https://api.github.com/repos/${OWNER}/${repo}${path}`, {
-        method: body === undefined ? 'GET' : 'POST', headers, redirect: 'error',
+        // Workers supports manual/follow only. Never forward the credential to
+        // a redirect destination; the non-2xx check below rejects every 3xx.
+        method: body === undefined ? 'GET' : 'POST', headers, redirect: 'manual',
         signal: AbortSignal.timeout(12_000), ...(body === undefined ? {} : {body: JSON.stringify(body)})});
     } catch { throw new SafeError(body === undefined ? 'github_read_unavailable' : 'mutation_result_unknown'); }
     if (missing && response.status === 404) return null;
