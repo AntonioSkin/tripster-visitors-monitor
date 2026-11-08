@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {Miniflare} from 'miniflare';
+import {Miniflare, convertV4MiniflareOptions} from 'miniflare';
 
 // Exercise the real workerd receiver check, not Node's more permissive fetch.
 // All outbound requests terminate in the local test service. No keys or network.
 const head = 'a'.repeat(40);
 const core = readFileSync(new URL('../external_watchdog/core.mjs', import.meta.url), 'utf8');
 let requests = 0;
-const runtime = new Miniflare({
+const runtime = new Miniflare(convertV4MiniflareOptions({
   workers:[{
     name:'watchdog-fetch-regression',
     modules:true,
@@ -33,7 +33,7 @@ const runtime = new Miniflare({
       return Response.json({object:{sha:head}});
     },
   }],
-});
+}));
 try {
   const response = await runtime.dispatchFetch('http://localhost/test');
   assert.equal(response.status, 200);
