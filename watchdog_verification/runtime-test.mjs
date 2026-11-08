@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {buildSync} from 'esbuild';
-import {Miniflare, convertV4MiniflareOptions} from 'miniflare';
+import {Miniflare, Response as LocalResponse, convertV4MiniflareOptions} from 'miniflare';
 
 // Exercise the real workerd receiver check, not Node's more permissive fetch.
 // All outbound requests terminate in the local test service. No keys or network.
@@ -34,14 +34,15 @@ const runtime = new Miniflare(convertV4MiniflareOptions({
       assert.equal(request.method, 'GET');
       assert.equal(request.headers.get('Authorization'), null);
       assert.equal(request.url, 'https://api.github.com/repos/AntonioSkin/tripster-visitors-monitor/git/ref/heads/main');
-      return Response.json({object:{sha:head}});
+      return LocalResponse.json({object:{sha:head}});
     },
   }],
 }));
 try {
   const response = await runtime.dispatchFetch('http://localhost/test');
-  assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), {receiverGuard:true, head, calls:1});
+  const body = await response.text();
+  assert.equal(response.status, 200, body);
+  assert.deepEqual(JSON.parse(body), {receiverGuard:true, head, calls:1});
   assert.equal(requests, 1);
   console.log('WORKERD_FETCH_VERIFIED: legacy receiver failure reproduced; default GitHubClient read succeeds; one local GET, no credentials or external network.');
 } finally {
