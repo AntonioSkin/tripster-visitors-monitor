@@ -104,7 +104,11 @@ export function assess(task, spec, docs, latest, now) {
 }
 
 export class GitHubClient {
-  constructor(token, fetcher = fetch) { this.token = token; this.fetcher = fetcher; this.calls = 0; }
+  // workerd requires the global receiver for native fetch. Calling a stored bare
+  // fetch as this.fetcher(...) fails before I/O, although Node tests accept it.
+  constructor(token, fetcher = (input, init) => globalThis.fetch(input, init)) {
+    this.token = token; this.fetcher = fetcher; this.calls = 0;
+  }
   async request(repo, path, {body, missing = false} = {}) {
     if (!REPOS.includes(repo) || !path.startsWith('/') || path.includes('://')) throw new SafeError('outside_allowlist');
     if (++this.calls > 48) throw new SafeError('request_budget_exhausted');
