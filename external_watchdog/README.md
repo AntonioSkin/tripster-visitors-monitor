@@ -74,13 +74,18 @@ Telegram не предоставляет идемпотентную отправ
 ### Развёртывание через GitHub Actions
 
 В репозитории подготовлен `Deploy external watchdog (observation)`.
-Ему нужны три repository secrets в `tripster-visitors-monitor`:
+Ему нужны два repository secrets в `tripster-visitors-monitor`:
 
 | Имя | Значение и область доступа |
 |---|---|
 | `CLOUDFLARE_API_TOKEN` | отдельный ключ для развёртывания Workers только выбранного Cloudflare account |
-| `CLOUDFLARE_ACCOUNT_ID` | 32-символьный ID этого аккаунта |
 | `WATCHDOG_GITHUB_TOKEN` | новый fine-grained token: только два репозитория мониторинга, Contents read и Actions write |
+
+Account ID определяется запросом GET к списку доступных аккаунтов Cloudflare.
+Если доступен ровно один аккаунт, его ID используется в том же задании, без
+публикации названия аккаунта и без дополнительного ручного копирования. Если
+аккаунтов несколько или список неполон, развёртывание останавливается: тогда
+нужно явно задать необязательный secret `CLOUDFLARE_ACCOUNT_ID`.
 
 Cloudflare рекомендует шаблон Edit Cloudflare Workers, ограниченный нужным
 аккаунтом. Права на DNS, зоны и другие неиспользуемые продукты добавлять не нужно.
