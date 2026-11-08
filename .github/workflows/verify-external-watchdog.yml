@@ -1,0 +1,38 @@
+name: Verify external watchdog observation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'watchdog_verification/observation.mjs'
+      - 'watchdog_verification/json-stream.mjs'
+      - 'watchdog_verification/test/stream.test.mjs'
+      - '.github/workflows/verify-external-watchdog.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-tripster-watchdog-observation
+  cancel-in-progress: false
+
+jobs:
+  observe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: node --test watchdog_verification/test/stream.test.mjs
+      - name: Verify deployed configuration and a real Cloudflare Cron observation
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node watchdog_verification/observation.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cloudflare-watchdog-observation
+          path: watchdog-observation.json
+          retention-days: 7
