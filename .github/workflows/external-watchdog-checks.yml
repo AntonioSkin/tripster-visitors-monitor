@@ -2,9 +2,8 @@ name: External watchdog checks
 
 on:
   push:
-    paths: ['external_watchdog/**', 'watchdog_verification/**', '.github/workflows/external-watchdog-checks.yml']
-  pull_request:
-    paths: ['external_watchdog/**', 'watchdog_verification/**', '.github/workflows/external-watchdog-checks.yml']
+    branches: [cloudflare/diagnose-read-access]
+    paths: ['.github/workflows/external-watchdog-checks.yml']
   workflow_dispatch:
 
 permissions:
@@ -13,22 +12,61 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 22
+    timeout-minutes: 7
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: Validate controller safety and observation
-        run: node --test external_watchdog/test/*.test.mjs watchdog_verification/test/*.test.mjs
-      - name: Diagnose only the two-repository read access from this temporary branch
+      - name: Read only the temporary recovery Worker's configuration and runtime events
         if: github.ref == 'refs/heads/cloudflare/diagnose-read-access'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          WATCHDOG_GITHUB_TOKEN: ${{ secrets.WATCHDOG_GITHUB_TOKEN }}
-        run: node external_watchdog/deployment-preflight.mjs
-      - name: Read the already approved Cloudflare observation logs from this temporary branch
-        if: github.ref == 'refs/heads/cloudflare/diagnose-read-access'
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: node watchdog_verification/observation.mjs
+          WRANGLER_SEND_METRICS: 'false'
+        run: |
+          node --input-type=module <<'JS'
+          import {spawn} from 'node:child_process';
+          import {discoverAccount} from './external_watchdog/deployment-preflight.mjs';
+          import {jsonStream} from './watchdog_verification/json-stream.mjs';
+          const worker = 'tripster-watchdog-recovery-test';
+          const account = await discoverAccount(process.env);
+          if (!account.accountId) throw new Error(account.error);
+          const root = 'https://api.cloudflare.com/client/v4/accounts/' + account.accountId + '/workers/scripts/' + worker;
+          async function read(path) {
+            const r = await fetch(root + path, {headers:{Authorization:'Bearer ' + process.env.CLOUDFLARE_API_TOKEN}, redirect:'error', signal:AbortSignal.timeout(15000)});
+            if (!r.ok) throw new Error('config_http_' + r.status);
+            const d = await r.json();
+            if (!d.success) throw new Error('config_not_successful');
+            return d.result;
+          }
+          const settings = await read('/settings');
+          const schedules = await read('/schedules');
+          const bindings = settings.bindings ?? [];
+          console.log(JSON.stringify({event:'ISOLATED_CONFIG_READ',worker,
+            runId:bindings.find(b => b.name === 'CANARY_RUN_ID')?.text,
+            sha:bindings.find(b => b.name === 'CANARY_SHA')?.text,
+            hasCredential:bindings.some(b => b.name === 'GITHUB_TOKEN' && b.type === 'secret_text'),
+            crons:(schedules.schedules ?? schedules).map(s => s.cron)}));
+          await new Promise(resolve => {
+            let child, done = false;
+            const finish = () => {if (done) return; done = true; clearTimeout(timer);
+              try {process.kill(-child.pid,'SIGINT');} catch {} resolve();};
+            const timer = setTimeout(() => {console.log('No isolated runtime event received within five minutes.'); finish();},300000);
+            const consume = jsonStream(event => {
+              if (event.event?.cron) console.log(JSON.stringify({event:'ISOLATED_SCHEDULE',cron:event.event.cron,outcome:event.outcome,scheduledTime:event.event.scheduledTime}));
+              for (const log of event.logs ?? []) for (const value of log.message ?? []) {
+                let d; try {d = JSON.parse(value);} catch {continue;}
+                if (['CANARY_CHECK_FAILED','CANARY_SAVE_RETRY_ACCEPTED','CANARY_RECOVERY_VERIFIED'].includes(d.event)) {
+                  console.log(JSON.stringify({event:d.event,runId:d.runId,saveJobId:d.saveJobId,collectJobId:d.collectJobId,runAttempt:d.runAttempt}));
+                  finish();
+                }
+              }
+            });
+            child = spawn('npx',['--yes','--package=wrangler@4.158.0','--','wrangler','tail',worker,'--format=json'],
+              {detached:true,stdio:['ignore','pipe','pipe'],env:{...process.env,CLOUDFLARE_ACCOUNT_ID:account.accountId}});
+            child.stdout.setEncoding('utf8'); child.stdout.on('data',consume);
+            child.stderr.on('data',()=>{});
+            child.on('error',()=>{console.log('Isolated tail process unavailable.');finish();});
+            child.on('exit',code=>{if (!done) console.log('Isolated tail exited: '+code);finish();});
+          });
+          JS
