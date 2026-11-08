@@ -3,6 +3,9 @@ export const OWNER = 'AntonioSkin';
 export const REPOS = ['tripster-visitors-monitor', 'tripster-price-monitor'];
 export const TOURS = [51192, 96862, 53900, 57434, 85543, 55575, 54971];
 export const VISITORS = [51192, 54971, 57434, 96862, 55575, 53900, 85543, 73464, 120781, 80259];
+export const PRICE_TOURS = [51192,57434,96862,51584,85543,83542,102873,62177,58617,53900,58568,
+  70193,51600,53155,54971,55575,54209,52987,75208,117523,120781,117366,118832,109950,
+  59591,30319,122651,127581,109984,107412,128352,107490,130393];
 export const TASKS = [
   ['1', 'daily.yml', 'Посетители'], ['2', 'seats.yml', 'Места 0–6'],
   ['3', 'calendar-history.yml', 'Юлия и Дмитрий'], ['4', 'fx.yml', 'Курс Wise'],
@@ -55,11 +58,12 @@ export function evidenceSpec(task, now) {
     files: ['data/closures/completed.json', 'data/closures/status.json']};
   if (task.id === '6') return {...latestSlot(now, [11]), delay: 45 * MINUTE,
     files: ['data/tickets/completed.json']};
-  return {key: 'rolling', delay: 45 * MINUTE, files: ['data/watchdog/completed.json']};
+  return {key: 'rolling', delay: 45 * MINUTE,
+    files: ['data/watchdog/completed.json','data/watchdog/status.json']};
 }
 
 export function assess(task, spec, docs, latest, now) {
-  let ok = false, last = null;
+  let ok = false, last = null, priceSafe = false;
   if (task.id === '1') {
     const [snapshot, receipt] = docs;
     last = stamp(receipt?.sent_at, now);
@@ -88,21 +92,24 @@ export function assess(task, spec, docs, latest, now) {
     ok = docs[0]?.ok === true && last !== null && last >= spec.start &&
       Number.isInteger(docs[0]?.tickets_count) && docs[0].tickets_count >= 0;
   } else {
+    priceSafe = docs[1]?.recovery_safe === true && stamp(docs[1]?.checked_at, now) !== null;
     last = stamp(docs[0]?.completed_at, now);
-    ok = docs[0]?.ok === true && docs[0]?.all_prices_checked === true &&
+    ok = priceSafe && docs[1]?.ok === true && docs[0]?.ok === true &&
+      docs[0]?.all_prices_checked === true && docs[0]?.recovery_safe === true &&
+      setMatches(docs[0]?.checked_ids, PRICE_TOURS) &&
       docs[0]?.delivery_complete === true && last !== null && +now - last < spec.delay;
   }
   const tooEarly = spec.start !== undefined && +now < spec.start + spec.delay;
   const windowClosed = spec.end !== undefined && +now >= spec.end;
   const running = latest && latest.status !== 'completed';
   let status = ok ? 'healthy' : tooEarly ? 'waiting' : running ? 'running' : 'stale';
-  if (task.id === '7' && !ok) status = 'unverified';
+  if (task.id === '7' && !priceSafe) status = docs[1] ? 'held' : 'unverified';
   return {id: task.id, title: task.title, status, key: spec.key,
     lastSuccess: last === null ? null : new Date(last).toISOString(),
     execution: latest ? {id: latest.id, status: latest.status, conclusion: latest.conclusion,
       updatedAt: latest.updated_at} : null,
-    eligible: !ok && !tooEarly && !running && !windowClosed && task.id !== '7',
-    reason: task.id === '7' && !ok ? 'price_receipt_and_lock_not_verified'
+    eligible: !ok && !tooEarly && !running && !windowClosed && (task.id !== '7' || priceSafe),
+    reason: task.id === '7' && !priceSafe ? 'price_delivery_or_persistence_not_verified'
       : windowClosed && !ok ? 'observation_window_closed' : status};
 }
 
@@ -176,7 +183,7 @@ export class GitHubClient {
     return d.artifacts;
   }
   async mutate(task, action) {
-    if (!TASKS.some(t => t.id === task.id && t.repo === task.repo && t.workflow === task.workflow) || task.id === '7') {
+    if (!TASKS.some(t => t.id === task.id && t.repo === task.repo && t.workflow === task.workflow)) {
       throw new SafeError('mutation_task_not_allowed');
     }
     if (action.type === 'dispatch') return this.request(task.repo, `/actions/workflows/${task.workflow}/dispatches`, {body:{ref:'main'}});

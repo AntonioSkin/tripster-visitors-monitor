@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {TASKS, TOURS, VISITORS, GitHubClient, SafeError, evidenceSpec, assess,
+import {TASKS, TOURS, VISITORS, PRICE_TOURS, GitHubClient, SafeError, evidenceSpec, assess,
   restoreAction, cycle, localDate} from '../core.mjs';
 import worker, {WatchdogState} from '../worker.mjs';
 
@@ -248,7 +248,7 @@ test('GitHub client is constrained to the two repositories and original workflow
   const client = new GitHubClient('test-only', async () => { requests++; return new Response(null,{status:204}); });
   await assert.rejects(client.request('unrelated-repo','/contents/x'), /outside_allowlist/);
   await assert.rejects(client.mutate({...TASKS[0], workflow:'health.yml'}, {type:'dispatch'}), /mutation_task_not_allowed/);
-  await assert.rejects(client.mutate(TASKS[6], {type:'dispatch'}), /mutation_task_not_allowed/);
+  await assert.rejects(client.mutate({...TASKS[6],repo:TASKS[0].repo}, {type:'dispatch'}), /mutation_task_not_allowed/);
   await assert.rejects(client.mutate(TASKS[0], {type:'cancel'}), /mutation_not_allowed/);
   assert.equal(requests, 0);
 });
@@ -256,6 +256,29 @@ test('GitHub client is constrained to the two repositories and original workflow
 test('partial active-run lists fail closed', async () => {
   const client = new GitHubClient('test-only', async () => Response.json({total_count:101, workflow_runs:[]}));
   await assert.rejects(client.hasActive(TASKS[0]), /active_run_list_incomplete/);
+});
+
+test('task 7 requires all 33 prices and safe persisted delivery state', () => {
+  const task=TASKS[6],spec=evidenceSpec(task,NOW);
+  const receipt={ok:true,all_prices_checked:true,delivery_complete:true,recovery_safe:true,
+    checked_ids:PRICE_TOURS,completed_at:iso(+NOW)};
+  const status={ok:true,recovery_safe:true,checked_at:iso(+NOW)};
+  assert.equal(assess(task,spec,[receipt,status],null,NOW).status,'healthy');
+  assert.notEqual(assess(task,spec,[{...receipt,checked_ids:PRICE_TOURS.slice(1)},status],null,NOW).status,'healthy');
+  const held=assess(task,spec,[receipt,{...status,recovery_safe:false}],null,NOW);
+  assert.equal(held.status,'held'); assert.equal(held.eligible,false);
+});
+
+test('task 7 can dispatch only after safe delivery evidence and its native lock are rechecked', async () => {
+  const client=new FakeClient(),task=TASKS[6],spec=evidenceSpec(task,NOW);
+  client.docs.set(`${task.repo}/${spec.files[1]}`,{ok:false,recovery_safe:true,checked_at:iso(+NOW)});
+  const result=await recover(client,undefined,{allow:['7']});
+  assert.equal(result.action.type,'dispatch'); assert.equal(result.action.task,'7');
+  assert.equal(client.mutations.length,1);
+  client.mutations=[];
+  client.docs.set(`${task.repo}/${spec.files[1]}`,{ok:false,recovery_safe:false,checked_at:iso(+NOW)});
+  await recover(client,undefined,{allow:['7']});
+  assert.equal(client.mutations.length,0);
 });
 
 test('manual redirect handling refuses the response without forwarding the credential', async () => {
