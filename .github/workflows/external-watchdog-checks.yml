@@ -21,3 +21,9 @@ jobs:
           node-version: '24'
       - name: Validate controller safety and observation
         run: node --test external_watchdog/test/*.test.mjs watchdog_verification/test/*.test.mjs
+      - name: Diagnose only the two-repository read access from this temporary branch
+        if: github.ref == 'refs/heads/cloudflare/diagnose-read-access'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          WATCHDOG_GITHUB_TOKEN: ${{ secrets.WATCHDOG_GITHUB_TOKEN }}
+        run: node external_watchdog/deployment-preflight.mjs
