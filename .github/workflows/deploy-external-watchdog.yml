@@ -1,4 +1,4 @@
-name: Deploy external watchdog (observation)
+name: Deploy external watchdog
 
 on:
   workflow_dispatch:
@@ -24,15 +24,18 @@ jobs:
           node-version: '24'
       - name: Validate safety checks
         run: node --test external_watchdog/test/*.test.mjs
-      - name: Require observation-only deployment
+      - name: Validate the authorized recovery scope and private interface
         run: |
           python - <<'PY'
           import tomllib
           with open('external_watchdog/wrangler.toml', 'rb') as f:
               config = tomllib.load(f)
           assert config['name'] == 'tripster-external-watchdog'
-          assert config['vars']['MODE'] == 'observe'
-          assert config['vars']['RECOVERY_ALLOWLIST'] == ''
+          mode = config['vars']['MODE']
+          allow = config['vars']['RECOVERY_ALLOWLIST'].split(',') if config['vars']['RECOVERY_ALLOWLIST'] else []
+          assert mode in ('observe', 'recover')
+          assert len(allow) == len(set(allow)) and set(allow) <= set('1234567')
+          assert (mode == 'observe' and not allow) or (mode == 'recover' and allow)
           assert config['workers_dev'] is False
           assert config['preview_urls'] is False
           PY
@@ -43,7 +46,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           WATCHDOG_GITHUB_TOKEN: ${{ secrets.WATCHDOG_GITHUB_TOKEN }}
         run: node external_watchdog/deployment-preflight.mjs
-      - name: Deploy observation worker and encrypted runtime credential
+      - name: Deploy controller and encrypted runtime credential
         if: steps.access.outputs.ready == 'true'
         uses: cloudflare/wrangler-action@v4
         with:
@@ -58,4 +61,4 @@ jobs:
       - name: Record configuration deployment
         if: steps.access.outputs.ready == 'true'
         run: |
-          echo 'Observation configuration deployed. Actual Cron execution and the live isolated recovery test still need verification.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Controller configuration deployed. Its active mode and recovery scope are recorded in external_watchdog/wrangler.toml; real scheduled execution is verified separately.' >> "$GITHUB_STEP_SUMMARY"

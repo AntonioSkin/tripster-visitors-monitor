@@ -44,7 +44,10 @@ export function evidenceSpec(task, now) {
     files: ['', '/51691', '/83542', '/103689'].map(s => `data/seats${s}/status.json`)};
   if (task.id === '3' || task.id === '4') {
     const slot = latestSlot(now, task.id === '3' ? [8, 11, 14, 17, 20, 23] : [11, 20]);
-    return {...slot, delay: 45 * MINUTE, end: slot.start + 120 * MINUTE,
+    // Calendar collection has a two-hour window. The currency script accepts
+    // its 11:00 slot until 20:00 and its 20:00 slot until local midnight.
+    const windowMinutes = task.id === '3' ? 120 : slot.hour === 11 ? 540 : 240;
+    return {...slot, delay: 45 * MINUTE, end: slot.start + windowMinutes * MINUTE,
       files: [task.id === '3' ? `data/calendar_history/joint/telegram/${slot.key}.json`
         : `data/fx/completed/${slot.key}.json`]};
   }

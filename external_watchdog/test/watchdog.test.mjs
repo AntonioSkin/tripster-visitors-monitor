@@ -202,6 +202,16 @@ test('expired calendar windows are reported without collecting a fabricated hist
   assert.equal(result.eligible, false);
 });
 
+test('currency catch-up follows the actual script window until local midnight', () => {
+  const task = TASKS[3], now = new Date('2026-11-08T18:15:00Z');
+  const spec = evidenceSpec(task, now);
+  assert.equal(spec.key, '2026-11-08T20:00');
+  assert.equal(assess(task,spec,[null],null,now).eligible,true);
+  assert.equal(assess(task,spec,[{rate:'5.4',checked_at:now.toISOString(),completed_at:now.toISOString()}],null,now).status,'healthy');
+  const midnight = new Date('2026-11-08T19:01:00Z');
+  assert.equal(assess(task,evidenceSpec(task,midnight),[null],null,midnight).eligible,false);
+});
+
 test('uses Shymkent timezone and the previous 23:00 slot across midnight', () => {
   const now = new Date('2026-11-08T19:15:00Z');
   assert.equal(localDate(now), '2026-11-09');
