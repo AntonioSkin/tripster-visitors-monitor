@@ -1,6 +1,6 @@
 import {readFileSync, writeFileSync, appendFileSync} from 'node:fs';
 import {discoverAccount} from '../external_watchdog/deployment-preflight.mjs';
-import {validateCanary} from './canary-worker.mjs';
+import {validateCanary, recoveryEvidence} from './canary-worker.mjs';
 const repo = 'AntonioSkin/tripster-visitors-monitor';
 const workflow = 'watchdog-recovery-canary.yml';
 const worker = 'tripster-watchdog-recovery-test';
@@ -34,9 +34,11 @@ if (operation === 'prepare') {
   writeFileSync('watchdog_verification/wrangler.toml',text);
   output('run_id',run.id); output('collect_id',collect.id); output('save_id',save.id);
   console.log(JSON.stringify({event:'CANARY_PREPARED',runId:run.id,collectJobId:collect.id,saveJobId:save.id}));
-} else if (operation === 'wait') {
+} else if (operation === 'wait' || operation === 'verify-existing') {
   const runId = Number(process.env.CANARY_RUN_ID), collectorId = Number(process.env.CANARY_COLLECTOR_ID);
   if (!Number.isSafeInteger(runId) || !Number.isSafeInteger(collectorId)) throw new Error('invalid_canary_run');
+  const original = await github(`/actions/jobs/${collectorId}`);
+  if (original.run_id !== runId) throw new Error('canary_original_collector_mismatch');
   const deadline = Date.now() + 18*60_000;
   let lastState = '';
   while (Date.now() < deadline) {
@@ -47,19 +49,16 @@ if (operation === 'prepare') {
     if (run.status === 'completed' && run.conclusion === 'success' && run.run_attempt >= 2) {
       const {jobs,total_count} = await github(`/actions/runs/${runId}/jobs?filter=latest&per_page=100`);
       if (total_count !== jobs.length) throw new Error('partial_canary_job_list');
-      const {collect,save} = validateCanary(run,jobs,runId,process.env.EXPECTED_SHA);
-      if (collect.id !== collectorId || collect.conclusion !== 'success' || save.conclusion !== 'success') {
-        throw new Error('canary_recovery_was_not_save_only');
-      }
-      const evidence = {verifiedAt:new Date().toISOString(),runId,runAttempt:run.run_attempt,
-        collectorJobUnchanged:true,collectJobId:collect.id,saveJobId:save.id,
-        workflow,realMonitorChanges:0,telegramMessages:0,healthchecksCalls:0};
+      const {artifacts,total_count:artifactCount} = await github(`/actions/runs/${runId}/artifacts?per_page=100`);
+      if (artifactCount !== artifacts.length) throw new Error('partial_canary_artifact_list');
+      const evidence = recoveryEvidence(run,jobs,original,artifacts,runId,process.env.EXPECTED_SHA);
       writeFileSync('watchdog-canary-recovery.json',JSON.stringify(evidence,null,2)+'\n');
       console.log('ISOLATED_GITHUB_RECOVERY_VERIFIED ' + JSON.stringify(evidence));
       if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY,
-        'The isolated save job recovered successfully. The collector job ID was unchanged; production monitors and messages were untouched.\n');
+        'The isolated save job recovered successfully. The collector execution and original artifact were unchanged; production monitors and messages were untouched.\n');
       process.exit(0);
     }
+    if (operation === 'verify-existing') throw new Error('canary_not_recovered');
     await new Promise(resolve => setTimeout(resolve,15_000));
   }
   throw new Error('isolated_recovery_not_verified_within_18_minutes');
