@@ -1,0 +1,61 @@
+name: Deploy external watchdog (observation)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['external_watchdog/**', '.github/workflows/deploy-external-watchdog.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-tripster-external-watchdog
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Validate safety checks
+        run: node --test external_watchdog/test/*.test.mjs
+      - name: Require observation-only deployment
+        run: |
+          python - <<'PY'
+          import tomllib
+          with open('external_watchdog/wrangler.toml', 'rb') as f:
+              config = tomllib.load(f)
+          assert config['name'] == 'tripster-external-watchdog'
+          assert config['vars']['MODE'] == 'observe'
+          assert config['vars']['RECOVERY_ALLOWLIST'] == ''
+          assert config['workers_dev'] is False
+          assert config['preview_urls'] is False
+          PY
+      - name: Check credentials without exposing their values
+        id: access
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WATCHDOG_GITHUB_TOKEN: ${{ secrets.WATCHDOG_GITHUB_TOKEN }}
+        run: node external_watchdog/deployment-preflight.mjs
+      - name: Deploy observation worker and encrypted runtime credential
+        if: steps.access.outputs.ready == 'true'
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ steps.access.outputs.account_id }}
+          workingDirectory: external_watchdog
+          command: deploy
+          secrets: |
+            GITHUB_TOKEN
+        env:
+          GITHUB_TOKEN: ${{ secrets.WATCHDOG_GITHUB_TOKEN }}
+      - name: Record configuration deployment
+        if: steps.access.outputs.ready == 'true'
+        run: |
+          echo 'Observation configuration deployed. Actual Cron execution and the live isolated recovery test still need verification.' >> "$GITHUB_STEP_SUMMARY"

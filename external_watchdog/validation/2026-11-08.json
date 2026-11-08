@@ -1,0 +1,111 @@
+{
+  "checkedAt": "2026-11-08T10:41:14.132Z",
+  "timezone": "Asia/Almaty",
+  "mode": "observe",
+  "tasks": [
+    {
+      "id": "1",
+      "title": "Посетители",
+      "status": "healthy",
+      "key": "2026-11-08",
+      "lastSuccess": "2026-11-08T07:12:23.000Z",
+      "execution": {
+        "id": 42467637620,
+        "status": "completed",
+        "conclusion": "success",
+        "updatedAt": "2026-11-08T09:32:58Z"
+      },
+      "reason": "healthy"
+    },
+    {
+      "id": "2",
+      "title": "Места 0–6",
+      "status": "stale",
+      "key": "rolling",
+      "lastSuccess": "2026-11-08T07:11:53.000Z",
+      "execution": {
+        "id": 42457748720,
+        "status": "completed",
+        "conclusion": "success",
+        "updatedAt": "2026-11-08T07:12:16Z"
+      },
+      "reason": "stale"
+    },
+    {
+      "id": "3",
+      "title": "Юлия и Дмитрий",
+      "status": "healthy",
+      "key": "2026-11-08T14:00",
+      "lastSuccess": "2026-11-08T09:40:04.989Z",
+      "execution": {
+        "id": 42472077766,
+        "status": "completed",
+        "conclusion": "success",
+        "updatedAt": "2026-11-08T10:35:40Z"
+      },
+      "reason": "healthy"
+    },
+    {
+      "id": "4",
+      "title": "Курс Wise",
+      "status": "healthy",
+      "key": "2026-11-08T11:00",
+      "lastSuccess": "2026-11-08T07:11:34.201Z",
+      "execution": {
+        "id": 42457753867,
+        "status": "completed",
+        "conclusion": "success",
+        "updatedAt": "2026-11-08T07:11:51Z"
+      },
+      "reason": "healthy"
+    },
+    {
+      "id": "5",
+      "title": "Закрытие мест",
+      "status": "healthy",
+      "key": "rolling",
+      "lastSuccess": "2026-11-08T09:33:55.596Z",
+      "execution": {
+        "id": 42467658346,
+        "status": "completed",
+        "conclusion": "success",
+        "updatedAt": "2026-11-08T09:34:17Z"
+      },
+      "reason": "healthy"
+    },
+    {
+      "id": "6",
+      "title": "Новые билеты",
+      "status": "stale",
+      "key": "2026-11-08T11:00",
+      "lastSuccess": "2026-11-07T12:27:39.068Z",
+      "execution": {
+        "id": 42372532444,
+        "status": "completed",
+        "conclusion": "success",
+        "updatedAt": "2026-11-07T12:27:52Z"
+      },
+      "reason": "stale"
+    },
+    {
+      "id": "7",
+      "title": "Цены",
+      "status": "unverified",
+      "key": "rolling",
+      "lastSuccess": null,
+      "execution": {
+        "id": 42467278065,
+        "status": "completed",
+        "conclusion": "success",
+        "updatedAt": "2026-11-08T09:28:56Z"
+      },
+      "reason": "price_receipt_and_lock_not_verified"
+    }
+  ],
+  "action": {
+    "type": "none",
+    "reason": "observation_only"
+  },
+  "githubRequests": 12,
+  "validationSource": "Connected GitHub read-only snapshot; not a deployed Cloudflare invocation"
+}

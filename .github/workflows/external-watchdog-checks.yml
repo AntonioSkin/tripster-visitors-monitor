@@ -1,0 +1,23 @@
+name: External watchdog checks
+
+on:
+  push:
+    paths: ['external_watchdog/**', '.github/workflows/external-watchdog-checks.yml']
+  pull_request:
+    paths: ['external_watchdog/**', '.github/workflows/external-watchdog-checks.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Validate controller safety and observation
+        run: node --test external_watchdog/test/*.test.mjs
