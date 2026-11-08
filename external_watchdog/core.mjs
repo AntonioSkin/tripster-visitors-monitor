@@ -126,7 +126,9 @@ export class GitHubClient {
     } catch { throw new SafeError(body === undefined ? 'github_read_unavailable' : 'mutation_result_unknown'); }
     if (missing && response.status === 404) return null;
     if (!response.ok) throw new SafeError(`github_http_${response.status}`);
-    if (response.status === 204) return null;
+    // Actions rerun returns 201 with no JSON; dispatch returns 204. HTTP
+    // acceptance is recorded separately from later persisted recovery evidence.
+    if (response.status === 204 || (body !== undefined && response.status === 201)) return null;
     try { return await response.json(); } catch { throw new SafeError('github_invalid_json'); }
   }
   async head(repo) {

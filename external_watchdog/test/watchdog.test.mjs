@@ -260,6 +260,19 @@ test('manual redirect handling refuses the response without forwarding the crede
   assert.equal(new URL(calls[0].url).hostname, 'api.github.com');
 });
 
+test('empty 201 accepts the save-job retry without claiming the task is recovered', async () => {
+  let requests = 0;
+  const client = new GitHubClient('test-only', async (url, init) => {
+    requests++;
+    assert.equal(url, 'https://api.github.com/repos/AntonioSkin/tripster-visitors-monitor/actions/jobs/123/rerun');
+    assert.equal(init.method, 'POST');
+    assert.equal(init.redirect, 'manual');
+    return new Response(null, {status:201});
+  });
+  assert.equal(await client.mutate(TASKS[0], {type:'rerun_save', jobId:123}), null);
+  assert.equal(requests, 1);
+});
+
 test('redacts response content and network errors; only 404 denotes absent file', async () => {
   const forbidden = new GitHubClient('test-only', async () => new Response('private contents', {status:403}));
   await assert.rejects(forbidden.file(TASKS[0].repo,'data/a.json','main'), /^Error: github_http_403$/);
