@@ -6,7 +6,9 @@
 
 **Статус 08.11.2026: исходники подготовлены; в Cloudflare не развёрнут.** Вход
 через Google в облачном браузере завершился сообщением `Something went wrong`.
-Успешный вход, создание Worker и реальные события Cloudflare Cron не подтверждены.
+Ручной вход в переданном браузере также не удался. Подготовлен альтернативный
+запуск через GitHub Actions без сессии браузера. Создание Worker и реальные
+события Cloudflare Cron пока не подтверждены.
 Этот файл не означает, что внешний контроль уже работает.
 
 ## Наблюдение
@@ -69,6 +71,34 @@ Telegram не предоставляет идемпотентную отправ
 
 ## Подключение к Cloudflare
 
+### Развёртывание через GitHub Actions
+
+В репозитории подготовлен `Deploy external watchdog (observation)`.
+Ему нужны три repository secrets в `tripster-visitors-monitor`:
+
+| Имя | Значение и область доступа |
+|---|---|
+| `CLOUDFLARE_API_TOKEN` | отдельный ключ для развёртывания Workers только выбранного Cloudflare account |
+| `CLOUDFLARE_ACCOUNT_ID` | 32-символьный ID этого аккаунта |
+| `WATCHDOG_GITHUB_TOKEN` | новый fine-grained token: только два репозитория мониторинга, Contents read и Actions write |
+
+Cloudflare рекомендует шаблон Edit Cloudflare Workers, ограниченный нужным
+аккаунтом. Права на DNS, зоны и другие неиспользуемые продукты добавлять не нужно.
+Ключи создаются и сохраняются владельцем через официальные интерфейсы Cloudflare
+и GitHub; их значения не передаются в чат. Не использовать Global API Key и
+старый `GH_PAT` из мониторинга цен. После загрузки GitHub-ключ сохраняется как
+зашифрованный secret Worker `GITHUB_TOKEN`; Cloudflare-ключ остаётся в GitHub CI.
+
+Без секретов workflow только сообщит об ожидании настройки. Перед развёртыванием
+он проверяет доступ к Cloudflare и двум репозиториям запросами GET, запускает тесты
+и запрещает конфигурацию с включённым восстановлением или публичным endpoint.
+После добавления секретов его можно запустить вручную, когда workflow попадёт в
+main. Помощник также может инициировать запуск разрешённым изменением файлов
+контролёра. Успешный deploy означает загрузку конфигурации; событие Cron и реальная
+проверка восстановления подтверждаются отдельно.
+
+### Развёртывание через панель Cloudflare
+
 1. Войти в ранее зарегистрированный аккаунт Cloudflare, оставить Workers Free.
 2. Загрузить проект из этой папки с конфигурацией `wrangler.toml`, включая
    миграцию SQLite Durable Object `WatchdogState`. Исходники хранятся в GitHub;
@@ -97,7 +127,7 @@ Worker и SQLite Durable Object доступны на Free. При превыш�
 ## Проверки без изменения рабочих задач
 
 ```sh
-node --test external_watchdog/test/watchdog.test.mjs
+node --test external_watchdog/test/*.test.mjs
 node external_watchdog/observe.mjs
 ```
 
@@ -107,12 +137,14 @@ node external_watchdog/observe.mjs
 Они не заменяют проверку Worker, Cron, привязки Durable Object и реального токена
 в Cloudflare. При изменении параметров задача 7 остаётся заблокированной.
 
-Исходные мониторинги, Healthchecks, резервный GitHub dispatcher и автоматизация
-ChatGPT сохраняются. Ни один из этих процессов не отключается этим проектом.
+Состояние исходных мониторингов, Healthchecks, резервного GitHub dispatcher и
+автоматизации ChatGPT не меняется. Поставленная пользователем на паузу
+автоматизация ChatGPT не возобновляется этим проектом.
 
 Документация:
 - https://developers.cloudflare.com/workers/configuration/cron-triggers/
 - https://developers.cloudflare.com/durable-objects/platform/pricing/
 - https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/
+- https://developers.cloudflare.com/workers/ci-cd/external-cicd/github-actions/
 - https://docs.github.com/en/rest/actions/workflows#create-a-workflow-dispatch-event
 - https://docs.github.com/en/rest/actions/workflow-runs#re-run-a-job-from-a-workflow-run

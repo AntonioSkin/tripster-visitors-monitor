@@ -20,4 +20,4 @@ jobs:
         with:
           node-version: '24'
       - name: Validate controller safety and observation
-        run: node --test external_watchdog/test/watchdog.test.mjs
+        run: node --test external_watchdog/test/*.test.mjs
