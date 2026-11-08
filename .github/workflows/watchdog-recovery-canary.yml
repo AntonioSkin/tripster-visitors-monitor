@@ -1,0 +1,50 @@
+name: Isolated watchdog recovery canary
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/watchdog-recovery-canary.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tripster-watchdog-recovery-canary
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      artifact: ${{ steps.fixture.outputs.artifact }}
+    steps:
+      - name: Produce only a disposable test artifact
+        id: fixture
+        run: |
+          mkdir -p "$RUNNER_TEMP/canary"
+          echo "$GITHUB_RUN_ID" > "$RUNNER_TEMP/canary/run-id.txt"
+          echo "artifact=monitor-task-canary-$GITHUB_RUN_ID-1" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.fixture.outputs.artifact }}
+          path: ${{ runner.temp }}/canary
+          retention-days: 7
+  save:
+    needs: collect
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: monitor-task-canary-${{ github.run_id }}-1
+          path: ${{ runner.temp }}/canary
+      - name: Simulate one save failure, then verify the original artifact
+        run: |
+          if [ "$GITHUB_RUN_ATTEMPT" = '1' ]; then
+            echo 'Expected isolated test failure. No production data or messages are involved.'
+            exit 1
+          fi
+          test "$(cat "$RUNNER_TEMP/canary/run-id.txt")" = "$GITHUB_RUN_ID"
+          echo 'CANARY_SAVE_OK: original artifact verified without repeating collection.'

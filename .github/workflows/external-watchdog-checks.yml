@@ -2,9 +2,9 @@ name: External watchdog checks
 
 on:
   push:
-    paths: ['external_watchdog/**', '.github/workflows/external-watchdog-checks.yml']
+    paths: ['external_watchdog/**', 'watchdog_verification/**', '.github/workflows/external-watchdog-checks.yml']
   pull_request:
-    paths: ['external_watchdog/**', '.github/workflows/external-watchdog-checks.yml']
+    paths: ['external_watchdog/**', 'watchdog_verification/**', '.github/workflows/external-watchdog-checks.yml']
   workflow_dispatch:
 
 permissions:
@@ -20,4 +20,4 @@ jobs:
         with:
           node-version: '24'
       - name: Validate controller safety and observation
-        run: node --test external_watchdog/test/*.test.mjs
+        run: node --test external_watchdog/test/*.test.mjs watchdog_verification/test/*.test.mjs
