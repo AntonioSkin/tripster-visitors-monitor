@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   validate:
@@ -25,3 +26,42 @@ jobs:
         run: npm install --no-save --no-package-lock wrangler@4.158.0
       - name: Verify native Workers fetch without network access or credentials
         run: node watchdog_verification/runtime-test.mjs
+      - name: Reconcile the completed isolated recovery using only GET requests
+        if: github.ref == 'refs/heads/cloudflare/reconcile-recovery-proof'
+        env:
+          WATCHDOG_GITHUB_TOKEN: ${{ github.token }}
+          CANARY_RUN_ID: '42504531791'
+          CANARY_COLLECTOR_ID: '128804186754'
+          EXPECTED_SHA: 'e827084c38e62836ab229b06dd49f8e69bbfed83'
+        run: node watchdog_verification/canary-tools.mjs verify-existing
+      - name: Verify observation mode and completed test cleanup without mutations
+        if: github.ref == 'refs/heads/cloudflare/reconcile-recovery-proof'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          const root='https://api.cloudflare.com/client/v4/accounts/2e77b8a5ee65cf11fd41037a4aa07904/workers/scripts/';
+          async function read(worker,path) {
+            const r=await fetch(root+worker+path,{headers:{Authorization:'Bearer '+process.env.CLOUDFLARE_API_TOKEN},redirect:'error',signal:AbortSignal.timeout(15000)});
+            assert.equal(r.status,200);
+            const d=await r.json(); assert.equal(d.success,true); return d.result;
+          }
+          const test='tripster-watchdog-recovery-test',main='tripster-external-watchdog';
+          const testSettings=await read(test,'/settings'),testSchedules=await read(test,'/schedules');
+          assert.equal((testSchedules.schedules??testSchedules).length,0);
+          assert.equal(testSettings.bindings.some(b=>b.name==='GITHUB_TOKEN'),false);
+          const mainSettings=await read(main,'/settings'),mainSchedules=await read(main,'/schedules'),domain=await read(main,'/subdomain');
+          assert.equal(mainSettings.bindings.find(b=>b.name==='MODE')?.text,'observe');
+          assert.equal(mainSettings.bindings.find(b=>b.name==='RECOVERY_ALLOWLIST')?.text,'');
+          assert.equal(mainSettings.bindings.some(b=>b.name==='GITHUB_TOKEN'&&b.type==='secret_text'),true);
+          assert.equal(domain.enabled,false); assert.equal(domain.previews_enabled,false);
+          assert.equal((mainSchedules.schedules??mainSchedules).some(s=>s.cron==='4,14,24,34,44,54 * * * *'),true);
+          console.log('WATCHDOG_FINAL_CONFIGURATION_VERIFIED '+JSON.stringify({observe:true,recoveryAllowlistEmpty:true,publicUrlsDisabled:true,mainCronPresent:true,isolatedCronRemoved:true,isolatedCredentialRemoved:true}));
+          JS
+      - uses: actions/upload-artifact@v4
+        if: github.ref == 'refs/heads/cloudflare/reconcile-recovery-proof'
+        with:
+          name: reconciled-live-cloudflare-recovery
+          path: watchdog-canary-recovery.json
+          retention-days: 7
