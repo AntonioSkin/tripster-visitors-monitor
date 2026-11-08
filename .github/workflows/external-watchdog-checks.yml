@@ -34,6 +34,30 @@ jobs:
           CANARY_COLLECTOR_ID: '128804186754'
           EXPECTED_SHA: 'e827084c38e62836ab229b06dd49f8e69bbfed83'
         run: node watchdog_verification/canary-tools.mjs verify-existing
+      - name: Stop only the duplicate post-merge verification after recovery evidence passed
+        if: github.ref == 'refs/heads/cloudflare/reconcile-recovery-proof'
+        env:
+          WATCHDOG_GITHUB_TOKEN: ${{ secrets.WATCHDOG_GITHUB_TOKEN }}
+        run: |
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          const root='https://api.github.com/repos/AntonioSkin/tripster-visitors-monitor/actions/runs/42506475856';
+          const headers={Authorization:'Bearer '+process.env.WATCHDOG_GITHUB_TOKEN,Accept:'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28','User-Agent':'tripster-test-cleanup'};
+          async function read() {const r=await fetch(root,{headers,redirect:'error',signal:AbortSignal.timeout(15000)});assert.equal(r.status,200);return r.json();}
+          const run=await read();
+          assert.equal(run.id,42506475856); assert.equal(run.head_branch,'main');
+          assert.equal(run.head_sha,'0c918196e3bf66f29202cb28fa217f84e63ca0f5');
+          assert.equal(run.name,'Verify external watchdog observation');
+          assert.equal(run.path,'.github/workflows/verify-external-watchdog.yml');
+          if (run.status!=='completed') {
+            const r=await fetch(root+'/cancel',{method:'POST',headers,redirect:'error',signal:AbortSignal.timeout(15000)});
+            assert.equal(r.status,202);
+            let stopped=false;
+            for(let n=0;n<15;n++) {const state=await read();if(state.status==='completed'){assert.equal(state.conclusion,'cancelled');stopped=true;break;}await new Promise(resolve=>setTimeout(resolve,1000));}
+            assert.equal(stopped,true);
+            console.log('DUPLICATE_TEST_VERIFICATION_STOPPED: only run 42506475856; main Cloudflare Cron unchanged.');
+          } else console.log('Duplicate verification had already completed; no cancellation sent.');
+          JS
       - name: Verify observation mode and completed test cleanup without mutations
         if: github.ref == 'refs/heads/cloudflare/reconcile-recovery-proof'
         env:
