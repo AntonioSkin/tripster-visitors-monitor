@@ -3,7 +3,11 @@ name: Isolated watchdog recovery canary
 on:
   push:
     branches: [main]
-    paths: ['.github/workflows/watchdog-recovery-canary.yml']
+    paths:
+      - 'watchdog_verification/**'
+      - '.github/workflows/verify-external-watchdog.yml'
+      - '.github/workflows/watchdog-recovery-canary.yml'
+      - '.github/workflows/test-external-watchdog-recovery.yml'
 
 permissions:
   contents: read

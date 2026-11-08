@@ -43,6 +43,9 @@ export async function preflight(env, fetcher = fetch) {
     ...['tripster-visitors-monitor', 'tripster-price-monitor'].map(repo => ({
       name:`github_${repo}_access`, url:`https://api.github.com/repos/AntonioSkin/${repo}/actions/runs?per_page=1`,
       token:env.WATCHDOG_GITHUB_TOKEN})),
+    ...['tripster-visitors-monitor', 'tripster-price-monitor'].map(repo => ({
+      name:`github_${repo}_contents_access`, url:`https://api.github.com/repos/AntonioSkin/${repo}/git/ref/heads/main`,
+      token:env.WATCHDOG_GITHUB_TOKEN, contents:true})),
   ];
   for (const target of targets) {
     try {
@@ -50,7 +53,9 @@ export async function preflight(env, fetcher = fetch) {
         headers:{Authorization:`Bearer ${target.token}`, Accept:'application/json', 'User-Agent':'tripster-watchdog-deploy'}});
       if (!response.ok) { errors.push(`${target.name}_http_${response.status}`); continue; }
       const body = await response.json();
-      if (target.cloudflare ? body.success !== true : !Array.isArray(body.workflow_runs)) {
+      const valid = target.cloudflare ? body.success === true : target.contents
+        ? /^[a-f0-9]{40}$/.test(body.object?.sha ?? '') : Array.isArray(body.workflow_runs);
+      if (!valid) {
         errors.push(`${target.name}_invalid_response`);
       }
     } catch { errors.push(`${target.name}_unavailable`); }

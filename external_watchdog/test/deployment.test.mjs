@@ -20,10 +20,11 @@ test('preflight only reads the Cloudflare account and the two monitoring reposit
   const requests = [];
   const result = await preflight(env, async (url, options) => {
     requests.push({url, options});
-    return Response.json(url.includes('api.cloudflare.com') ? {success:true, result:[]} : {workflow_runs:[]});
+    return Response.json(url.includes('api.cloudflare.com') ? {success:true, result:[]}
+      : url.includes('/git/ref/') ? {object:{sha:'d'.repeat(40)}} : {workflow_runs:[]});
   });
   assert.equal(result.ready, true);
-  assert.equal(requests.length, 3);
+  assert.equal(requests.length, 5);
   assert.ok(requests.every(r => r.options.method === 'GET' && r.options.redirect === 'error'));
   assert.equal(JSON.stringify(result).includes(env.WATCHDOG_GITHUB_TOKEN), false);
   assert.equal(JSON.stringify(result).includes(env.CLOUDFLARE_API_TOKEN), false);
@@ -32,7 +33,7 @@ test('preflight only reads the Cloudflare account and the two monitoring reposit
 test('credential failures and response bodies are redacted and block deployment', async () => {
   const result = await preflight(env, async () => new Response('sensitive-server-body', {status:403}));
   assert.equal(result.ready, false);
-  assert.equal(result.errors.length, 3);
+  assert.equal(result.errors.length, 5);
   assert.equal(JSON.stringify(result).includes('sensitive-server-body'), false);
 });
 
@@ -81,11 +82,12 @@ test('preflight uses the discovered account for the actual Worker access check',
   const result = await preflight(envWithoutAccount(), async url => {
     requests.push(url);
     if (url.endsWith('/accounts?per_page=50')) return Response.json({success:true,result:[{id:'c'.repeat(32)}]});
-    return Response.json(url.includes('api.cloudflare.com') ? {success:true,result:[]} : {workflow_runs:[]});
+    return Response.json(url.includes('api.cloudflare.com') ? {success:true,result:[]}
+      : url.includes('/git/ref/') ? {object:{sha:'d'.repeat(40)}} : {workflow_runs:[]});
   });
   assert.equal(result.ready, true);
   assert.equal(result.accountId, 'c'.repeat(32));
-  assert.equal(requests.length, 4);
+  assert.equal(requests.length, 6);
   assert.ok(requests[1].includes('/accounts/' + 'c'.repeat(32) + '/workers/scripts'));
 });
 
