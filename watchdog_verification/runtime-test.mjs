@@ -14,7 +14,15 @@ const probe = `
       try { await legacy.fetcher('https://api.github.com/repos/AntonioSkin/tripster-visitors-monitor/git/ref/heads/main'); }
       catch (error) { receiverGuard = error instanceof TypeError && error.message.startsWith('Illegal invocation'); }
       const client = new GitHubClient(null);
-      const head = await client.head(REPOS[0]);
+      const transport = client.fetcher;
+      let transportError;
+      client.fetcher = async (input, init) => {
+        try { return await transport(input, init); }
+        catch (error) { transportError = String(error); throw error; }
+      };
+      let head;
+      try { head = await client.head(REPOS[0]); }
+      catch (error) { return Response.json({receiverGuard, transportError, error:String(error)}, {status:500}); }
       return Response.json({receiverGuard, head, calls:client.calls});
     }
   };
