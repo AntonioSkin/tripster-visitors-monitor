@@ -5,10 +5,10 @@ on:
   push:
     branches: [main]
     paths:
-      - 'watchdog_verification/observation.mjs'
-      - 'watchdog_verification/json-stream.mjs'
-      - 'watchdog_verification/test/stream.test.mjs'
+      - 'watchdog_verification/**'
       - '.github/workflows/verify-external-watchdog.yml'
+      - '.github/workflows/watchdog-recovery-canary.yml'
+      - '.github/workflows/test-external-watchdog-recovery.yml'
 
 permissions:
   contents: read

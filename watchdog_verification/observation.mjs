@@ -44,9 +44,9 @@ const result = await new Promise((resolve, reject) => {
         let parsed; try { parsed = JSON.parse(value); } catch { continue; }
         if (parsed.mode === 'observe' && Array.isArray(parsed.tasks) && parsed.tasks.length === 7 &&
             new Set(parsed.tasks.map(t => t.id)).size === 7 && parsed.action?.reason === 'observation_only') {
-          if (parsed.tasks.some(t => t.status === 'unknown')) return finish(new Error('observation_has_unreadable_tasks'));
           summary = parsed;
           console.log('Observed persisted seven-task check: ' + JSON.stringify(summary));
+          if (parsed.tasks.some(t => t.status === 'unknown')) return finish(new Error('observation_has_unreadable_tasks'));
         }
         if (parsed.event === 'watchdog_failed') return finish(new Error('watchdog_runtime_' + parsed.reason));
       }

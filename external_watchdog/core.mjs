@@ -104,7 +104,11 @@ export function assess(task, spec, docs, latest, now) {
 }
 
 export class GitHubClient {
-  constructor(token, fetcher = fetch) { this.token = token; this.fetcher = fetcher; this.calls = 0; }
+  // workerd requires the global receiver for native fetch. Calling a stored bare
+  // fetch as this.fetcher(...) fails before I/O, although Node tests accept it.
+  constructor(token, fetcher = (input, init) => globalThis.fetch(input, init)) {
+    this.token = token; this.fetcher = fetcher; this.calls = 0;
+  }
   async request(repo, path, {body, missing = false} = {}) {
     if (!REPOS.includes(repo) || !path.startsWith('/') || path.includes('://')) throw new SafeError('outside_allowlist');
     if (++this.calls > 48) throw new SafeError('request_budget_exhausted');
@@ -115,7 +119,9 @@ export class GitHubClient {
     let response;
     try {
       response = await this.fetcher(`https://api.github.com/repos/${OWNER}/${repo}${path}`, {
-        method: body === undefined ? 'GET' : 'POST', headers, redirect: 'error',
+        // Workers supports manual/follow only. Never forward the credential to
+        // a redirect destination; the non-2xx check below rejects every 3xx.
+        method: body === undefined ? 'GET' : 'POST', headers, redirect: 'manual',
         signal: AbortSignal.timeout(12_000), ...(body === undefined ? {} : {body: JSON.stringify(body)})});
     } catch { throw new SafeError(body === undefined ? 'github_read_unavailable' : 'mutation_result_unknown'); }
     if (missing && response.status === 404) return null;
