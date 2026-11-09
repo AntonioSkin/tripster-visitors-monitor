@@ -1,6 +1,7 @@
 // No Cloudflare dependency: the same decisions run in the Worker and in tests.
 export const OWNER = 'AntonioSkin';
 export const REPOS = ['tripster-visitors-monitor', 'tripster-price-monitor'];
+export const MAX_DAILY_ATTEMPTS = 96;
 export const TOURS = [51192, 96862, 53900, 57434, 85543, 55575, 54971];
 export const VISITORS = [51192, 54971, 57434, 96862, 55575, 53900, 85543, 73464, 120781, 80259];
 export const PRICE_TOURS = [51192,57434,96862,51584,85543,83542,102873,62177,58617,53900,58568,
@@ -258,7 +259,7 @@ export async function cycle({client, storage, now = new Date(), mode = 'observe'
     state.perTask[task.id] = incident;
     if (!client.token) action = {type:'hold', reason:'github_token_required'};
     else if (incident.ambiguous) action = {type:'hold', reason:'previous_mutation_result_unknown'};
-    else if (incident.attempts >= 2 || state.daily.count >= 12) action = {type:'hold', reason:'attempt_limit'};
+    else if (incident.attempts >= 2 || state.daily.count >= MAX_DAILY_ATTEMPTS) action = {type:'hold', reason:'attempt_limit'};
     else if (incident.lastAttempt && +now - incident.lastAttempt < 45 * MINUTE) action = {type:'hold', reason:'cooldown'};
     else try {
       // Re-read current main and persisted evidence immediately before deciding.
