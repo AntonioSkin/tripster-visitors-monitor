@@ -35,7 +35,7 @@ function fixtures(now = NOW) {
 }
 
 class FakeClient {
-  constructor() { this.token = 'test-only'; this.docs = fixtures(); this.calls = 0; this.mutations = []; this.active = false; }
+  constructor(now = NOW) { this.token = 'test-only'; this.docs = fixtures(now); this.calls = 0; this.mutations = []; this.active = false; }
   async head() { this.calls++; return 'a'.repeat(40); }
   async latest(task) { this.calls++; return {id:Number(task.id), head_branch:'main',
     path:`.github/workflows/${task.workflow}`, status:'completed', conclusion:'success'}; }
@@ -51,9 +51,9 @@ class FakeClient {
   async jobs() { return []; }
   async artifacts() { return []; }
   async mutate(task, action) { this.mutations.push({task:task.id, action}); }
-  stale(id) {
-    const task = TASKS.find(t => t.id === id), spec = evidenceSpec(task, NOW);
-    if (id === '2') spec.files.forEach(path => this.docs.set(`${task.repo}/${path}`, {ok:true, checked_at:iso(+NOW - 120*minute)}));
+  stale(id, now = NOW) {
+    const task = TASKS.find(t => t.id === id), spec = evidenceSpec(task, now);
+    if (id === '2') spec.files.forEach(path => this.docs.set(`${task.repo}/${path}`, {ok:true, checked_at:iso(+now - 120*minute)}));
     else spec.files.forEach(path => this.docs.set(`${task.repo}/${path}`, null));
     return this;
   }
@@ -191,7 +191,7 @@ test('twelve successful overnight repairs do not block a new overdue task or byp
   const resumed=await recover(client,storage,{allow:['2']});
   assert.equal(resumed.action.type,'dispatch');
   assert.equal((await storage.get('state')).daily.count,13);
-  const next=await recover(client,storage,{allow:['2'],now:new Date(+NOW+15*minute)});
+  const next=await recover(client,storage,{allow:['2'],now:new Date(+NOW+5*minute)});
   assert.equal(next.action.reason,'cooldown');
   assert.equal(client.mutations.length,1);
 });
@@ -203,6 +203,88 @@ test('held tasks do not starve other overdue tasks on later ticks', async () => 
   client.active = false;
   const result = await recover(client, storage);
   assert.equal(result.action.task, '5');
+});
+
+test('a live calendar deadline takes priority over the rolling queue', async () => {
+  const client = new FakeClient().stale('2').stale('3');
+  const result = await recover(client);
+  assert.equal(result.action.task, '3');
+  assert.equal(client.mutations.length, 1);
+});
+
+test('an expired currency deadline cannot displace a still achievable calendar window', async () => {
+  const client = new FakeClient().stale('3').stale('4'), storage = new MemoryStorage();
+  await storage.put('state', {perTask:{}, history:[], daily:{day:localDate(NOW), count:0}, cursor:3});
+  const result = await recover(client, storage);
+  assert.equal(result.action.task, '3');
+});
+
+test('equal soft deadlines retain the existing round-robin tie break', async () => {
+  const now = new Date('2026-11-08T07:00:00Z');
+  const client = new FakeClient(now).stale('1', now).stale('4', now);
+  const storage = new MemoryStorage();
+  await storage.put('state', {perTask:{}, history:[], daily:{day:localDate(now), count:0}, cursor:3});
+  assert.equal((await recover(client, storage, {now})).action.task, '4');
+});
+
+test('an irreversible calendar cutoff wins when alert deadlines are equal', async () => {
+  const now = new Date('2026-11-08T07:00:00Z');
+  const client = new FakeClient(now).stale('1', now).stale('3', now).stale('4', now);
+  const storage = new MemoryStorage();
+  await storage.put('state', {perTask:{}, history:[], daily:{day:localDate(now), count:0}, cursor:3});
+  assert.equal((await recover(client, storage, {now})).action.task, '3');
+});
+
+test('an urgent task in cooldown does not delay another ready task', async () => {
+  const client = new FakeClient().stale('2').stale('3'), storage = new MemoryStorage();
+  assert.equal((await recover(client, storage)).action.task, '3');
+  assert.equal((await recover(client, storage, {now:new Date(+NOW + 5*minute)})).action.task, '2');
+  assert.deepEqual(client.mutations.map(m => m.task), ['3', '2']);
+  assert.equal((await storage.get('state')).perTask['3'].attempts, 1);
+});
+
+test('a held urgent preflight loses priority without preventing a later safe retry', async () => {
+  const client = new FakeClient().stale('2').stale('3').stale('5'), storage = new MemoryStorage();
+  client.active = true;
+  assert.equal((await recover(client, storage)).action.reason, 'run_already_active');
+  client.active = false;
+  assert.equal((await recover(client, storage, {now:new Date(+NOW + 5*minute)})).action.task, '5');
+  assert.equal((await recover(client, storage, {allow:['3'], now:new Date(+NOW + 10*minute)})).action.task, '3');
+  assert.deepEqual(client.mutations.map(m => m.task), ['5', '3']);
+});
+
+test('a held calendar preflight does not block the next achievable FX deadline', async () => {
+  const now = new Date('2026-11-08T07:00:00Z');
+  const client = new FakeClient(now).stale('2', now).stale('3', now).stale('4', now);
+  const storage = new MemoryStorage();
+  client.active = true;
+  assert.equal((await recover(client, storage, {now})).action.reason, 'run_already_active');
+  client.active = false;
+  assert.equal((await recover(client, storage, {now:new Date(+now + 5*minute)})).action.task, '4');
+});
+
+test('seven safe overdue tasks receive distinct commands within seven five-minute checks', async () => {
+  const start = new Date('2026-11-08T06:45:00Z');
+  const client = new FakeClient(start), storage = new MemoryStorage();
+  for (const id of ['1','2','3','4','5','6']) client.stale(id, start);
+  const price = TASKS[6], priceSpec = evidenceSpec(price, start);
+  client.docs.set(`${price.repo}/${priceSpec.files[0]}`, {ok:true, all_prices_checked:true,
+    checked_ids:PRICE_TOURS, recovery_safe:true, delivery_complete:true,
+    completed_at:iso(+start - 60*minute)});
+  client.docs.set(`${price.repo}/${priceSpec.files[1]}`, {ok:true, recovery_safe:true,
+    checked_at:iso(+start - 60*minute)});
+  await storage.put('state', {perTask:{}, history:[], daily:{day:localDate(start), count:12}});
+  const actions = [];
+  for (let i = 0; i < 7; i++) {
+    const result = await recover(client, storage, {allow:['1','2','3','4','5','6','7'],
+      now:new Date(+start + i*5*minute)});
+    assert.equal(result.action.type, 'dispatch');
+    actions.push(result.action.task);
+  }
+  assert.deepEqual([...actions].sort(), ['1','2','3','4','5','6','7']);
+  assert.deepEqual(actions.slice(0, 3), ['3','4','1']);
+  assert.equal(client.mutations.length, 7);
+  assert.equal((await storage.get('state')).daily.count, 19);
 });
 
 test('expired calendar windows are reported without collecting a fabricated historical slot', () => {

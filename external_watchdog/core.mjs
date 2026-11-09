@@ -42,7 +42,7 @@ function latestSlot(now, hours) {
 
 export function evidenceSpec(task, now) {
   const day = localDate(now);
-  if (task.id === '1') return {key: day, start: at(day, 8), delay: 45 * MINUTE,
+  if (task.id === '1') return {key: day, start: at(day, 8), delay: 45 * MINUTE, deadline:at(day, 13),
     files: [`data/daily/${day}.json`, `data/telegram/${day}.json`]};
   if (task.id === '2') return {key: 'rolling', delay: 90 * MINUTE,
     files: ['', '/51691', '/83542', '/103689'].map(s => `data/seats${s}/status.json`)};
@@ -51,7 +51,8 @@ export function evidenceSpec(task, now) {
     // Calendar collection has a two-hour window. The currency script accepts
     // its 11:00 slot until 20:00 and its 20:00 slot until local midnight.
     const windowMinutes = task.id === '3' ? 120 : slot.hour === 11 ? 540 : 240;
-    return {...slot, delay: 45 * MINUTE, end: slot.start + windowMinutes * MINUTE,
+    return {...slot, delay: 45 * MINUTE, deadline:slot.start + 120 * MINUTE,
+      end: slot.start + windowMinutes * MINUTE,
       files: [task.id === '3' ? `data/calendar_history/joint/telegram/${slot.key}.json`
         : `data/fx/completed/${slot.key}.json`]};
   }
@@ -228,9 +229,40 @@ export function restoreAction(latest, jobs = [], artifacts = [], taskId) {
   return {type:'hold', reason:'delivery_or_persistence_uncertain'};
 }
 
+function incidentFor(result, state) {
+  const key = `${result.key}:${result.lastSuccess ?? 'missing'}`;
+  const previous = state.perTask[result.id];
+  return previous?.key === key ? previous : {key, attempts:0};
+}
+
+function recoveryBlock(client, incident, state, now) {
+  if (!client.token) return 'github_token_required';
+  if (incident.ambiguous) return 'previous_mutation_result_unknown';
+  if (incident.attempts >= 2 || state.daily.count >= MAX_DAILY_ATTEMPTS) return 'attempt_limit';
+  if (incident.lastAttempt && +now - incident.lastAttempt < 45 * MINUTE) return 'cooldown';
+  return null;
+}
+
+function prioritySignature(result) {
+  return JSON.stringify([result.key, result.lastSuccess, result.latest?.id, result.latest?.updated_at]);
+}
+
+function chooseCandidate(ordered, state, client, now, allow) {
+  const candidates = ordered.filter(r => r.eligible && allow.includes(r.id));
+  const ready = candidates.filter(r => !recoveryBlock(client, incidentFor(r, state), state, now));
+  // Expired soft deadlines cannot displace an observation still inside its window.
+  // A held preflight loses priority for this evidence/run, but stays in the fair queue.
+  const urgent = ready.filter(r => r.spec.deadline > +now &&
+    state.priorityHolds[r.id] !== prioritySignature(r));
+  urgent.sort((a, b) => a.spec.deadline - b.spec.deadline ||
+    Number(b.spec.end === b.spec.deadline) - Number(a.spec.end === a.spec.deadline));
+  return urgent[0] ?? ready[0] ?? candidates[0];
+}
+
 export async function cycle({client, storage, now = new Date(), mode = 'observe', allow = []}) {
   if (!['observe', 'recover'].includes(mode)) throw new SafeError('invalid_mode');
   const state = await storage.get('state') ?? {perTask:{}, history:[], daily:{}};
+  state.priorityHolds ??= {};
   if (state.daily.day !== localDate(now)) state.daily = {day:localDate(now), count:0};
   const refs = {};
   const results = [];
@@ -239,7 +271,10 @@ export async function cycle({client, storage, now = new Date(), mode = 'observe'
       refs[task.repo] ??= await client.head(task.repo);
       const result = await readTask(client, task, now, refs[task.repo]);
       results.push(result);
-      if (result.status === 'healthy') delete state.perTask[task.id];
+      if (result.status === 'healthy') {
+        delete state.perTask[task.id];
+        delete state.priorityHolds[task.id];
+      }
     } catch (e) {
       results.push({id:task.id, title:task.title, status:'unknown', eligible:false,
         reason:e instanceof SafeError ? e.message : 'read_failed'});
@@ -249,19 +284,17 @@ export async function cycle({client, storage, now = new Date(), mode = 'observe'
   let action = {type:'none', reason:mode === 'observe' ? 'observation_only' : 'no_eligible_task'};
   const cursor = state.cursor ?? 0;
   const ordered = [...results.slice(cursor), ...results.slice(0, cursor)];
-  const candidate = ordered.find(r => r.eligible && allow.includes(r.id));
+  const candidate = chooseCandidate(ordered, state, client, now, allow);
   if (mode === 'recover' && candidate) state.cursor = (results.indexOf(candidate) + 1) % TASKS.length;
   if (mode === 'recover' && candidate && !results.some(r => r.status === 'unknown')) {
     const task = candidate.task;
-    const incidentKey = `${candidate.key}:${candidate.lastSuccess ?? 'missing'}`;
-    const previous = state.perTask[task.id];
-    const incident = previous?.key === incidentKey ? previous : {key:incidentKey, attempts:0};
+    const incident = incidentFor(candidate, state);
     state.perTask[task.id] = incident;
-    if (!client.token) action = {type:'hold', reason:'github_token_required'};
-    else if (incident.ambiguous) action = {type:'hold', reason:'previous_mutation_result_unknown'};
-    else if (incident.attempts >= 2 || state.daily.count >= MAX_DAILY_ATTEMPTS) action = {type:'hold', reason:'attempt_limit'};
-    else if (incident.lastAttempt && +now - incident.lastAttempt < 45 * MINUTE) action = {type:'hold', reason:'cooldown'};
+    const blocked = recoveryBlock(client, incident, state, now);
+    let preflight = false;
+    if (blocked) action = {type:'hold', reason:blocked};
     else try {
+      preflight = true;
       // Re-read current main and persisted evidence immediately before deciding.
       const ref = await client.head(task.repo);
       const fresh = await readTask(client, task, now, ref);
@@ -291,6 +324,8 @@ export async function cycle({client, storage, now = new Date(), mode = 'observe'
         }
       }
     } catch (e) { action = {type:'hold', reason:e instanceof SafeError ? e.message : 'preflight_failed'}; }
+    if (preflight && action.type === 'hold') state.priorityHolds[task.id] = prioritySignature(candidate);
+    else if (preflight) delete state.priorityHolds[task.id];
   }
   const summary = {checkedAt:now.toISOString(), timezone:'Asia/Almaty', mode,
     tasks:results.map(({task, spec, latest, ref, eligible, ...r}) => r), action, githubRequests:client.calls};
