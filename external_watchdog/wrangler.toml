@@ -9,7 +9,7 @@ MODE = "recover"
 RECOVERY_ALLOWLIST = "1,2,3,4,5,6,7"
 
 [triggers]
-crons = ["*/2 * * * *"]
+crons = ["*/15 * * * *"]
 
 [[durable_objects.bindings]]
 name = "WATCHDOG_STATE"

@@ -191,7 +191,7 @@ test('twelve successful overnight repairs do not block a new overdue task or byp
   const resumed=await recover(client,storage,{allow:['2']});
   assert.equal(resumed.action.type,'dispatch');
   assert.equal((await storage.get('state')).daily.count,13);
-  const next=await recover(client,storage,{allow:['2'],now:new Date(+NOW+2*minute)});
+  const next=await recover(client,storage,{allow:['2'],now:new Date(+NOW+15*minute)});
   assert.equal(next.action.reason,'cooldown');
   assert.equal(client.mutations.length,1);
 });
