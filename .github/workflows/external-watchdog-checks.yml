@@ -36,14 +36,17 @@ jobs:
           const schedulesResponse=await fetch(root+'/schedules',{headers:{Authorization:'Bearer '+process.env.CLOUDFLARE_API_TOKEN},redirect:'error',signal:AbortSignal.timeout(15000)});
           assert.equal(schedulesResponse.status,200);
           const schedules=(await schedulesResponse.json()).result.schedules;
-          assert.deepEqual(schedules.map(s=>s.cron),['*/15 * * * *']);
-          console.log('FIFTEEN_MINUTE_SCHEDULE_CONFIGURATION_VERIFIED');
+          assert.deepEqual(schedules.map(s=>s.cron),['*/5 * * * *']);
+          console.log('FIVE_MINUTE_SCHEDULE_CONFIGURATION_VERIFIED');
           const scriptResponse=await fetch(root,{headers:{Authorization:'Bearer '+process.env.CLOUDFLARE_API_TOKEN},redirect:'error',signal:AbortSignal.timeout(15000)});
           assert.equal(scriptResponse.status,200);
-          assert.equal(/MAX_DAILY_ATTEMPTS\s*=\s*96;/.test(await scriptResponse.text()),true,'deployed_daily_ceiling_not_verified');
+          const deployedSource=await scriptResponse.text();
+          assert.equal(/MAX_DAILY_ATTEMPTS\s*=\s*96;/.test(deployedSource),true,'deployed_daily_ceiling_not_verified');
+          assert.equal(deployedSource.includes('function chooseCandidate(')&&deployedSource.includes('state.priorityHolds'),true,'deployed_priority_code_not_verified');
+          console.log('PRIORITY_RECOVERY_CODE_DEPLOYED_VERIFIED');
           console.log('DAILY_RECOVERY_CEILING_96_DEPLOYED_VERIFIED');
           await new Promise((resolve,reject)=>{
-            let child,done=false,cycles=0;
+            let child,done=false,cycles=0,previousTick=null;
             const finish=error=>{if(done)return;done=true;clearTimeout(timer);try{process.kill(-child.pid,'SIGINT');}catch{}if(error)reject(error);else resolve();};
             const timer=setTimeout(()=>finish(new Error('runtime_verification_timeout')),37*60000);
             const consume=jsonStream(event=>{
@@ -51,16 +54,19 @@ jobs:
                 let summary;try{summary=JSON.parse(value);}catch{continue;}
                 if(summary.mode==='recover'&&summary.tasks?.length===7){
                   const checkedAt=new Date(summary.checkedAt);
-                  if(!Number.isFinite(+checkedAt)||checkedAt.getUTCMinutes()%15!==0)continue;
-                  if(event.event?.cron&&event.event.cron!=='*/15 * * * *')continue;
+                  if(!Number.isFinite(+checkedAt)||checkedAt.getUTCMinutes()%5!==0)continue;
+                  if(event.event?.cron&&event.event.cron!=='*/5 * * * *')continue;
                   if(event.outcome!=='ok')return finish(new Error('runtime_invocation_failed'));
                   if(!Number.isInteger(summary.githubRequests)||summary.githubRequests>48)return finish(new Error('runtime_request_budget_invalid'));
                   if(summary.tasks.some(task=>task.status==='unknown'))return finish(new Error('runtime_reads_not_verified'));
                   const action=summary.action;
                   if(action?.task&&!['1','2','3','4','5','6','7'].includes(action.task))return finish(new Error('runtime_scope_invalid'));
+                  if(previousTick!==null&&+checkedAt<=previousTick)continue;
+                  if(previousTick!==null&&Math.abs((+checkedAt-previousTick)-5*60000)>60000)cycles=0;
+                  previousTick=+checkedAt;
                   cycles++;console.log('SCHEDULED_RECOVERY_CYCLE_VERIFIED');
                   if(action?.outcome==='accepted_waiting_for_fresh_evidence')console.log('AUTOMATIC_RECOVERY_COMMAND_ACCEPTED');
-                  if(cycles>=1){console.log('FIFTEEN_MINUTE_AUTOMATIC_RECOVERY_RUNTIME_VERIFIED');finish();}
+                  if(cycles>=2){console.log('FIVE_MINUTE_AUTOMATIC_RECOVERY_RUNTIME_VERIFIED');finish();}
                 }
                 if(summary.event==='watchdog_failed')finish(new Error('runtime_check_failed'));
               }
