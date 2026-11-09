@@ -40,7 +40,7 @@ jobs:
           console.log('FIFTEEN_MINUTE_SCHEDULE_CONFIGURATION_VERIFIED');
           const scriptResponse=await fetch(root,{headers:{Authorization:'Bearer '+process.env.CLOUDFLARE_API_TOKEN},redirect:'error',signal:AbortSignal.timeout(15000)});
           assert.equal(scriptResponse.status,200);
-          assert.match(await scriptResponse.text(),/\\bMAX_DAILY_ATTEMPTS\\s*=\\s*96\\b/);
+          assert.equal(/MAX_DAILY_ATTEMPTS\s*=\s*96;/.test(await scriptResponse.text()),true,'deployed_daily_ceiling_not_verified');
           console.log('DAILY_RECOVERY_CEILING_96_DEPLOYED_VERIFIED');
           await new Promise((resolve,reject)=>{
             let child,done=false,cycles=0;
