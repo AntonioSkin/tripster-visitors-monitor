@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {TASKS, TOURS, VISITORS, PRICE_TOURS, GitHubClient, SafeError, evidenceSpec, assess,
+import {TASKS, TOURS, VISITORS, PRICE_TOURS, MAX_DAILY_ATTEMPTS, GitHubClient, SafeError, evidenceSpec, assess,
   restoreAction, cycle, localDate} from '../core.mjs';
 import worker, {WatchdogState} from '../worker.mjs';
 
@@ -180,9 +180,20 @@ test('an ambiguous mutation result is not retried after cooldown', async () => {
 
 test('daily budget prevents restart storms', async () => {
   const client = new FakeClient().stale('2'), storage = new MemoryStorage();
-  await storage.put('state', {perTask:{}, history:[], daily:{day:localDate(NOW), count:12}});
+  await storage.put('state', {perTask:{}, history:[], daily:{day:localDate(NOW), count:MAX_DAILY_ATTEMPTS}});
   assert.equal((await recover(client, storage)).action.reason, 'attempt_limit');
   assert.equal(client.mutations.length, 0);
+});
+
+test('twelve successful overnight repairs do not block a new overdue task or bypass cooldown', async () => {
+  const client=new FakeClient().stale('2'),storage=new MemoryStorage();
+  await storage.put('state',{perTask:{},history:[],daily:{day:localDate(NOW),count:12}});
+  const resumed=await recover(client,storage,{allow:['2']});
+  assert.equal(resumed.action.type,'dispatch');
+  assert.equal((await storage.get('state')).daily.count,13);
+  const next=await recover(client,storage,{allow:['2'],now:new Date(+NOW+15*minute)});
+  assert.equal(next.action.reason,'cooldown');
+  assert.equal(client.mutations.length,1);
 });
 
 test('held tasks do not starve other overdue tasks on later ticks', async () => {
