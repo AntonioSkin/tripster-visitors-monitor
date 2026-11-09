@@ -2,8 +2,7 @@
   "initialized": true,
   "error_notified": false,
   "notified": {
-    "2026-11-10T05:45": 2,
-    "2026-11-09T05:45": 1
+    "2026-11-10T05:45": 2
   },
-  "last_success": "2026-11-09T22:48:02+05:00"
+  "last_success": "2026-11-10T00:21:11+05:00"
 }
