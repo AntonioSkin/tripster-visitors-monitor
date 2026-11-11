@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: Verify fifteen-minute recovery without publishing task data or creating artifacts
+      - name: Verify private watchdog deployment and consecutive five-minute cycles
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           WRANGLER_SEND_METRICS: 'false'
@@ -41,22 +41,37 @@ jobs:
           const scriptResponse=await fetch(root,{headers:{Authorization:'Bearer '+process.env.CLOUDFLARE_API_TOKEN},redirect:'error',signal:AbortSignal.timeout(15000)});
           assert.equal(scriptResponse.status,200);
           const deployedSource=await scriptResponse.text();
-          assert.equal(/MAX_DAILY_ATTEMPTS\s*=\s*96;/.test(deployedSource),true,'deployed_daily_ceiling_not_verified');
+          assert.equal(/MAX_DAILY_ATTEMPTS\s*=\s*256;/.test(deployedSource),true,'deployed_daily_ceiling_not_verified');
           assert.equal(deployedSource.includes('function chooseCandidate(')&&deployedSource.includes('state.priorityHolds'),true,'deployed_priority_code_not_verified');
           console.log('PRIORITY_RECOVERY_CODE_DEPLOYED_VERIFIED');
-          console.log('DAILY_RECOVERY_CEILING_96_DEPLOYED_VERIFIED');
+          console.log('DAILY_RECOVERY_CEILING_256_DEPLOYED_VERIFIED');
+          assert.equal(deployedSource.includes('suppressed_no_changes') && deployedSource.includes('delivery_required'),true,'quiet_completion_not_deployed');
+          assert.equal(deployedSource.includes('recordCycleStatistics') && deployedSource.includes('watchdog_statistics') && /STATISTICS_DAYS\s*=\s*7;/.test(deployedSource),true,'private_statistics_not_deployed');
+          assert.equal((deployedSource.match(/delay:\s*30\s*\*\s*MINUTE/g)??[]).length>=2,true,'rolling_freshness_not_deployed');
+          assert.equal(/delay:\s*15\s*\*\s*MINUTE/.test(deployedSource),true,'price_freshness_not_deployed');
+          console.log('FRESHNESS_AND_QUIET_COMPLETION_DEPLOYED_VERIFIED');
+          console.log('PRIVATE_SEVEN_DAY_STATISTICS_DEPLOYED_VERIFIED');
           await new Promise((resolve,reject)=>{
-            let child,done=false,cycles=0,previousTick=null;
+            let child,done=false,cycles=0,previousTick=null,statisticsEvents=0;
             const finish=error=>{if(done)return;done=true;clearTimeout(timer);try{process.kill(-child.pid,'SIGINT');}catch{}if(error)reject(error);else resolve();};
             const timer=setTimeout(()=>finish(new Error('runtime_verification_timeout')),37*60000);
             const consume=jsonStream(event=>{
               for(const log of event.logs??[])for(const value of log.message??[]){
                 let summary;try{summary=JSON.parse(value);}catch{continue;}
+                if(summary.event==='watchdog_statistics_failed')return finish(new Error('runtime_statistics_failed'));
+                if(summary.event==='watchdog_statistics'){
+                  if(summary.version!==1||!Number.isFinite(Date.parse(summary.startedAt)))return finish(new Error('runtime_statistics_schema_invalid'));
+                  if(!Array.isArray(summary.retainedDays)||summary.retainedDays.length<1||summary.retainedDays.length>7)return finish(new Error('runtime_statistics_retention_invalid'));
+                  if(!Number.isInteger(summary.counters?.checks)||summary.counters.checks<1||summary.counters.attemptCeiling!==256)return finish(new Error('runtime_statistics_counters_invalid'));
+                  statisticsEvents++;
+                  console.log('PRIVATE_STATISTICS_PERSISTENCE_VERIFIED');
+                }
                 if(summary.mode==='recover'&&summary.tasks?.length===7){
                   const checkedAt=new Date(summary.checkedAt);
                   if(!Number.isFinite(+checkedAt)||checkedAt.getUTCMinutes()%5!==0)continue;
                   if(event.event?.cron&&event.event.cron!=='*/5 * * * *')continue;
                   if(event.outcome!=='ok')return finish(new Error('runtime_invocation_failed'));
+                  if(summary.dailyLimit!==256||!Number.isInteger(summary.dailyAttempts)||summary.dailyAttempts<0||summary.dailyAttempts>256)return finish(new Error('runtime_attempt_ceiling_invalid'));
                   if(!Number.isInteger(summary.githubRequests)||summary.githubRequests>48)return finish(new Error('runtime_request_budget_invalid'));
                   if(summary.tasks.some(task=>task.status==='unknown'))return finish(new Error('runtime_reads_not_verified'));
                   const action=summary.action;
@@ -66,7 +81,7 @@ jobs:
                   previousTick=+checkedAt;
                   cycles++;console.log('SCHEDULED_RECOVERY_CYCLE_VERIFIED');
                   if(action?.outcome==='accepted_waiting_for_fresh_evidence')console.log('AUTOMATIC_RECOVERY_COMMAND_ACCEPTED');
-                  if(cycles>=2){console.log('FIVE_MINUTE_AUTOMATIC_RECOVERY_RUNTIME_VERIFIED');finish();}
+                  if(cycles>=2&&statisticsEvents>=2){console.log('FIVE_MINUTE_AUTOMATIC_RECOVERY_RUNTIME_VERIFIED');console.log('PRIVATE_STATISTICS_RUNTIME_VERIFIED');finish();}
                 }
                 if(summary.event==='watchdog_failed')finish(new Error('runtime_check_failed'));
               }
