@@ -69,10 +69,14 @@ def group_url(group):
     return URL.replace('/yulia/', '/' + group['key'] + '/')
 
 
+def changed_departures(current):
+    return sorted({r['departure'] for rows in current.values() for r in rows
+                   if r['daily'] is not None and r['daily'] != 0})
+
+
 def report_text(current):
     lines = ['Задача 3 — остатки мест', '']
-    dates = sorted({r['departure'] for rows in current.values() for r in rows
-                    if r['daily'] is not None and r['daily'] != 0})
+    dates = changed_departures(current)
     for departure in dates:
         lines.append(datetime.fromisoformat(departure).strftime('%d.%m.%Y') + ':')
         for group in GROUPS:
@@ -138,15 +142,14 @@ def interval_rows(snapshots):
     return rows
 
 
-def run():
-    now = datetime.now(TZ)
+def run(now=None, collect_fn=None, send_fn=None):
+    now = now or datetime.now(TZ)
     day = now.date().isoformat()
-    observation = due_observation(now)
+    observation = due_observation(now, DIRECTORY)
     if observation is None:
         print('Время замера ещё не наступило или отчёт уже отправлен.')
         return
     receipt = DIRECTORY / 'telegram' / f'{observation}.json'
-    token, chat = os.environ['TELEGRAM_BOT_TOKEN'], os.environ['TELEGRAM_CHAT_ID']
     current, failed = {}, []
     for group in GROUPS:
         group_directory = ROOT / 'data/calendar_history' / group['key']
@@ -159,7 +162,7 @@ def run():
             path = directory / 'measurements' / f'{observation}.json'
             try:
                 if not path.exists():
-                    snapshot = collect(tour, full_calendar=True)
+                    snapshot = (collect_fn or collect)(tour, full_calendar=True)
                     if snapshot['date_from'] != day:
                         raise ValueError('Дата замера изменилась')
                     snapshot['observation_id'] = observation
@@ -191,8 +194,19 @@ def run():
         text = ('Задача 3 — остатки мест\nЮлия и Дмитрий\n\n'
                 'Все изменения по датам — в полном отчёте:\n'
                 + URL.replace('/yulia/summary.csv', '/joint/latest.txt'))
-    send_message(token, chat, text)
-    save_json(receipt, {'sent_at': datetime.now(TZ).isoformat(), 'observation_id': observation,
-                       'tours': [t['id'] for g in GROUPS for t in g['tours']]})
+    changes = bool(changed_departures(current))
+    if changes:
+        (send_fn or send_message)(os.environ['TELEGRAM_BOT_TOKEN'], os.environ['TELEGRAM_CHAT_ID'], text)
+    completed = datetime.now(TZ).isoformat()
+    evidence = {'completed_at': completed, 'observation_id': observation,
+                'tours': [t['id'] for g in GROUPS for t in g['tours']],
+                'changes_detected': changes, 'delivery_required': changes, 'delivery_complete': True,
+                'notification': 'sent' if changes else 'suppressed_no_changes'}
+    if changes:
+        evidence['sent_at'] = completed
+    save_json(receipt, evidence)
     save_json(DIRECTORY / 'status.json', {'ok': True, 'checked_at': datetime.now(TZ).isoformat(),
                                         'dates': {key: len(rows) for key, rows in current.items()}})
+    if not changes:
+        print('Задача 3: полный замер сохранён; уведомление не требуется.')
+

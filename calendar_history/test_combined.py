@@ -1,6 +1,13 @@
 import unittest
+import json
+import os
+from datetime import datetime
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import Mock, patch
 from calendar_history.combined import merge_rows, report_text, GROUPS
 from calendar_history.monitor import build_rows
+from calendar_history import combined
 
 
 def history(before, after):
@@ -146,3 +153,74 @@ class ThreeHourlyTests(unittest.TestCase):
         self.assertIsNone(observation_id(datetime(2026, 11, 2, 8, tzinfo=TZ)))
         self.assertEqual(observation_id(datetime(2026, 11, 2, 17, tzinfo=TZ)), '2026-11-02T11:00')
         self.assertEqual(observation_id(datetime(2026, 11, 2, 23, tzinfo=TZ)), '2026-11-02T23:00')
+
+
+class QuietCompletionTests(unittest.TestCase):
+    def run_case(self, *, baseline=True, changed=False, fail_send=False, fail_collect=False):
+        with TemporaryDirectory() as tmp:
+            root=Path(tmp); directory=root/'data/calendar_history/joint'
+            now=datetime.fromisoformat('2026-11-11T17:45:00+05:00')
+            for group in GROUPS:
+                for tour in group['tours']:
+                    base=(root/'data/calendar_history'/str(tour['id']) if group['key']=='yulia'
+                          else root/'data/calendar_history/dmitry/tours'/str(tour['id']))
+                    if baseline:
+                        path=base/'measurements/2026-11-11T14:00.json';path.parent.mkdir(parents=True)
+                        path.write_text(json.dumps({'date_from':'2026-11-11','checked_at':'2026-11-11T14:05:00+05:00',
+                            'observation_id':'2026-11-11T14:00','slots':[{'key':'2026-12-04T08:00','available':12}]}))
+            def collect(tour, **kwargs):
+                if fail_collect and tour['id']==51192:
+                    raise RuntimeError('test collection failure')
+                return {'experience_id':tour['id'],'date_from':'2026-11-11','date_to':'2027-04-26',
+                    'checked_at':now.isoformat(),'slots':[{'key':'2026-12-04T08:00',
+                    'available':10 if changed and tour['id']==51192 else 12}]}
+            collector=Mock(side_effect=collect);sender=Mock()
+            receipt=directory/'telegram/2026-11-11T17:00.json'
+            with patch.object(combined,'ROOT',root),patch.object(combined,'DIRECTORY',directory),\
+                    patch.dict(os.environ,{'TELEGRAM_BOT_TOKEN':'test','TELEGRAM_CHAT_ID':'test'} if changed else {},clear=True):
+                if fail_send or fail_collect:
+                    if fail_send: sender.side_effect=RuntimeError('test delivery failure')
+                    with self.assertRaises(RuntimeError):
+                        combined.run(now,collector,sender)
+                    self.assertFalse(receipt.exists())
+                    if fail_collect:
+                        sender.assert_not_called()
+                        return
+                    sender.reset_mock(side_effect=True)
+                combined.run(now,collector,sender)
+                combined.run(now,collector,sender)
+            self.assertEqual(collector.call_count,7)
+            evidence=json.loads(receipt.read_text())
+            self.assertEqual(evidence['observation_id'],'2026-11-11T17:00')
+            self.assertEqual(len(set(evidence['tours'])),7)
+            self.assertTrue(evidence['delivery_complete'])
+            self.assertEqual(evidence['changes_detected'],changed)
+            self.assertEqual(evidence['delivery_required'],changed)
+            self.assertTrue(json.loads((directory/'status.json').read_text())['ok'])
+            self.assertTrue((root/'data/calendar_history/yulia/summary.csv').exists())
+            if changed:
+                sender.assert_called_once()
+                self.assertIn('Юлия — продано 2 места',sender.call_args.args[2])
+                self.assertNotIn('проверка выполнена',sender.call_args.args[2])
+                self.assertEqual(evidence['notification'],'sent')
+                self.assertEqual(evidence['sent_at'],evidence['completed_at'])
+            else:
+                sender.assert_not_called()
+                self.assertEqual(evidence['notification'],'suppressed_no_changes')
+                self.assertNotIn('sent_at',evidence)
+
+    def test_unchanged_observation_is_saved_silently_once(self):
+        self.run_case()
+
+    def test_initial_baseline_does_not_send_a_status_message(self):
+        self.run_case(baseline=False)
+
+    def test_changes_still_send_the_original_guide_report_once(self):
+        self.run_case(changed=True)
+
+    def test_delivery_failure_keeps_immutable_measurements_for_retry(self):
+        self.run_case(changed=True,fail_send=True)
+
+    def test_partial_collection_cannot_be_certified_as_quiet_success(self):
+        self.run_case(fail_collect=True)
+

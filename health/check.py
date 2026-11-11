@@ -8,6 +8,7 @@ from urllib.error import HTTPError
 from monitor import ROOT, TZ
 from telegram_report import send_message
 from calendar_history.schedule import observation_hours
+from calendar_history.completion import completion_stamp
 
 
 def read(root, path):
@@ -41,7 +42,7 @@ def assess(root, now):
             paths = [f'data/calendar_history/{i}/measurements/{obs}.json' for i in (51192,96862,53900)]
             paths += [f'data/calendar_history/dmitry/tours/{i}/measurements/{obs}.json' for i in (57434,85543,55575,54971)]
             complete = all((root / p).exists() for p in paths)
-            checks[f'3:{obs}'] = ('Задача 3 — Юлия и Дмитрий', bool(receipt),
+            checks[f'3:{obs}'] = ('Задача 3 — Юлия и Дмитрий', bool(completion_stamp(receipt)),
                 f'{ds}, замер {hour:02}:00, попытки до {deadline:%d-%m-%Y %H:%M}',
                 'доставка в Telegram' if complete else 'сбор данных')
     from fx.monitor import ENABLED_FROM
@@ -77,7 +78,7 @@ def assess(root, now):
             stamp, deadline = receipt.get('sent_at'), day.replace(hour=13)
         elif key.startswith('3:'):
             receipt = read(root, f'data/calendar_history/joint/telegram/{key[2:]}.json')
-            stamp = receipt.get('sent_at')
+            stamp = completion_stamp(receipt)
             deadline = datetime.fromisoformat(key[2:]).replace(tzinfo=TZ) + timedelta(hours=2)
         else:
             receipt = read(root, f'data/fx/completed/{key[2:]}.json')
@@ -158,4 +159,5 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 

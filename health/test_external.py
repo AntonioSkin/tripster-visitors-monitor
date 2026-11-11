@@ -104,6 +104,21 @@ class ExternalTests(unittest.TestCase):
         (self.root / CALENDAR_TOURS[54971] / f'measurements/{self.obs}.json').unlink()
         self.assertIsNone(completion('3', self.root, self.now))
 
+    def test_calendar_can_complete_silently_but_still_needs_every_snapshot(self):
+        receipt={'completed_at':self.at.isoformat(),'observation_id':self.obs,'tours':list(CALENDAR_TOURS),
+            'notification':'suppressed_no_changes','changes_detected':False,
+            'delivery_required':False,'delivery_complete':True}
+        self.save(f'data/calendar_history/joint/telegram/{self.obs}.json',receipt)
+        for tour,base in CALENDAR_TOURS.items():
+            self.save(f'{base}/measurements/{self.obs}.json',{
+                'experience_id':tour,'observation_id':self.obs,'date_from':'2026-10-28',
+                'checked_at':self.at.isoformat(),'slots':[]})
+        self.assertEqual(completion('3',self.root,self.now),self.at)
+        self.assertNotIn('sent_at',receipt)
+        receipt['delivery_complete']=False
+        self.save(f'data/calendar_history/joint/telegram/{self.obs}.json',receipt)
+        self.assertIsNone(completion('3',self.root,self.now))
+
     def test_noop_cannot_extend_external_deadline(self):
         self.fx()
         check = {'last_ping': self.now.isoformat(), 'grace': 7200, 'status': 'up'}
@@ -157,4 +172,5 @@ class ExternalTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
 
