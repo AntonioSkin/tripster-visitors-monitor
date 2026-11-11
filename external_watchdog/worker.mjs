@@ -1,4 +1,5 @@
 import {GitHubClient, SafeError, cycle} from './core.mjs';
+import {recordCycleStatistics} from './statistics.mjs';
 
 // A single SQLite Durable Object supplies atomic ownership and persistent attempt limits.
 // Nothing is exposed over the public HTTP interface.
@@ -23,9 +24,13 @@ export class WatchdogState {
       const allow = (this.env.RECOVERY_ALLOWLIST ?? '').split(',').map(x => x.trim()).filter(Boolean);
       const summary = await cycle({client:new GitHubClient(this.env.GITHUB_TOKEN),
         storage:this.ctx.storage, mode, allow});
+      await recordCycleStatistics(this.ctx.storage,summary);
       console.log(JSON.stringify(summary));
       return Response.json({ok:true});
     } catch (e) {
+      if (acquired) await recordCycleStatistics(this.ctx.storage,{
+        checkedAt:new Date(now).toISOString(), failed:true, tasks:[],
+        action:{type:'hold',reason:e instanceof SafeError ? e.message : 'internal_error'}});
       console.error(JSON.stringify({event:'watchdog_failed',
         reason:e instanceof SafeError ? e.message : 'internal_error'}));
       return new Response('check failed', {status:503});
@@ -46,3 +51,4 @@ export default {
     if (result.status !== 409 && !result.ok) throw new Error('Watchdog check failed');
   },
 };
+

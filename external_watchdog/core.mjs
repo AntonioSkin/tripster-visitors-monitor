@@ -1,7 +1,7 @@
 // No Cloudflare dependency: the same decisions run in the Worker and in tests.
 export const OWNER = 'AntonioSkin';
 export const REPOS = ['tripster-visitors-monitor', 'tripster-price-monitor'];
-export const MAX_DAILY_ATTEMPTS = 96;
+export const MAX_DAILY_ATTEMPTS = 256;
 export const TOURS = [51192, 96862, 53900, 57434, 85543, 55575, 54971];
 export const VISITORS = [51192, 54971, 57434, 96862, 55575, 53900, 85543, 73464, 120781, 80259];
 export const PRICE_TOURS = [51192,57434,96862,51584,85543,83542,102873,62177,58617,53900,58568,
@@ -44,7 +44,7 @@ export function evidenceSpec(task, now) {
   const day = localDate(now);
   if (task.id === '1') return {key: day, start: at(day, 8), delay: 45 * MINUTE, deadline:at(day, 13),
     files: [`data/daily/${day}.json`, `data/telegram/${day}.json`]};
-  if (task.id === '2') return {key: 'rolling', delay: 90 * MINUTE,
+  if (task.id === '2') return {key: 'rolling', delay: 30 * MINUTE,
     files: ['', '/51691', '/83542', '/103689'].map(s => `data/seats${s}/status.json`)};
   if (task.id === '3' || task.id === '4') {
     const slot = latestSlot(now, task.id === '3' ? [8, 11, 14, 17, 20, 23] : [11, 20]);
@@ -56,11 +56,11 @@ export function evidenceSpec(task, now) {
       files: [task.id === '3' ? `data/calendar_history/joint/telegram/${slot.key}.json`
         : `data/fx/completed/${slot.key}.json`]};
   }
-  if (task.id === '5') return {key: 'rolling', delay: 90 * MINUTE,
+  if (task.id === '5') return {key: 'rolling', delay: 30 * MINUTE,
     files: ['data/closures/completed.json', 'data/closures/status.json']};
   if (task.id === '6') return {...latestSlot(now, [11]), delay: 45 * MINUTE,
     files: ['data/tickets/completed.json']};
-  return {key: 'rolling', delay: 45 * MINUTE,
+  return {key: 'rolling', delay: 15 * MINUTE,
     files: ['data/watchdog/completed.json','data/watchdog/status.json']};
 }
 
@@ -78,7 +78,14 @@ export function assess(task, spec, docs, latest, now) {
     last = stamps.every(n => n !== null) ? Math.min(...stamps) : null;
     ok = docs.every(d => d?.ok === true) && last !== null && +now - last < spec.delay;
   } else if (task.id === '3') {
-    last = stamp(docs[0]?.sent_at, now);
+    const receipt = docs[0];
+    const silent = receipt?.notification === 'suppressed_no_changes' &&
+      receipt.changes_detected === false && receipt.delivery_required === false &&
+      receipt.delivery_complete === true && !receipt.sent_at;
+    const delivered = receipt?.notification === undefined ||
+      (receipt.notification === 'sent' && receipt.changes_detected === true &&
+        receipt.delivery_required === true && receipt.delivery_complete === true);
+    last = stamp(silent ? receipt.completed_at : delivered ? receipt?.sent_at : null, now);
     ok = docs[0]?.observation_id === spec.key && setMatches(docs[0]?.tours, TOURS) &&
       last !== null && last >= spec.start && last <= spec.end;
   } else if (task.id === '4') {
@@ -285,6 +292,9 @@ export async function cycle({client, storage, now = new Date(), mode = 'observe'
   const cursor = state.cursor ?? 0;
   const ordered = [...results.slice(cursor), ...results.slice(0, cursor)];
   const candidate = chooseCandidate(ordered, state, client, now, allow);
+  if (mode === 'recover' && candidate && results.some(r => r.status === 'unknown')) {
+    action = {type:'hold', task:candidate.id, reason:'incomplete_observation'};
+  }
   if (mode === 'recover' && candidate) state.cursor = (results.indexOf(candidate) + 1) % TASKS.length;
   if (mode === 'recover' && candidate && !results.some(r => r.status === 'unknown')) {
     const task = candidate.task;
@@ -327,10 +337,13 @@ export async function cycle({client, storage, now = new Date(), mode = 'observe'
     if (preflight && action.type === 'hold') state.priorityHolds[task.id] = prioritySignature(candidate);
     else if (preflight) delete state.priorityHolds[task.id];
   }
+  if (candidate && action.type === 'hold') action = {...action, task:candidate.id};
   const summary = {checkedAt:now.toISOString(), timezone:'Asia/Almaty', mode,
+    dailyAttempts:state.daily.count, dailyLimit:MAX_DAILY_ATTEMPTS,
     tasks:results.map(({task, spec, latest, ref, eligible, ...r}) => r), action, githubRequests:client.calls};
   state.history = [...state.history.slice(-99), summary];
   state.last = summary;
   await storage.put('state', state);
   return summary;
 }
+

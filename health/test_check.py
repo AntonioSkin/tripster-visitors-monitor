@@ -30,6 +30,27 @@ class HealthTests(unittest.TestCase):
             receipt.write_text(json.dumps({'sent_at': now.isoformat()}))
             self.assertIn('3:2026-11-03T23:00:late', assess(root, now))
 
+    def test_quiet_completion_keeps_deadline_and_does_not_require_a_delivery(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            receipt = root / 'data/calendar_history/joint/telegram/2026-11-03T23:00.json'
+            receipt.parent.mkdir(parents=True)
+            evidence = {'notification': 'suppressed_no_changes', 'changes_detected': False,
+                        'delivery_required': False, 'delivery_complete': True,
+                        'completed_at': '2026-11-04T00:30:00+05:00'}
+            receipt.write_text(json.dumps(evidence))
+            now = datetime(2026,11,4,1,30,tzinfo=TZ)
+            key = '3:2026-11-03T23:00'
+            checks = assess(root, now)
+            self.assertTrue(checks[key][1])
+            self.assertNotIn(key + ':late', checks)
+            evidence['completed_at'] = now.isoformat()
+            receipt.write_text(json.dumps(evidence))
+            self.assertIn(key + ':late', assess(root, now))
+            evidence['delivery_complete'] = False
+            receipt.write_text(json.dumps(evidence))
+            self.assertFalse(assess(root, now)[key][1])
+
     def test_deadlines_and_retry_grace(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -83,4 +104,5 @@ class HealthTests(unittest.TestCase):
             self.assertTrue(check[1])
             self.assertEqual(notifications({'5:closures': check}, state, now), [])
             self.assertEqual(state['5:closures'], 'ok')
+
 

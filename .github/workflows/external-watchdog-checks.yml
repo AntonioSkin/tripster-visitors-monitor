@@ -2,9 +2,9 @@ name: External watchdog checks
 
 on:
   push:
-    paths: ['external_watchdog/**', 'watchdog_verification/**', '.github/workflows/external-watchdog-checks.yml']
+    paths: ['external_watchdog/**', 'watchdog_verification/**', 'calendar_history/**', 'health/**', '.github/workflows/external-watchdog-checks.yml']
   pull_request:
-    paths: ['external_watchdog/**', 'watchdog_verification/**', '.github/workflows/external-watchdog-checks.yml']
+    paths: ['external_watchdog/**', 'watchdog_verification/**', 'calendar_history/**', 'health/**', '.github/workflows/external-watchdog-checks.yml']
   workflow_dispatch:
 
 permissions:
@@ -21,7 +21,13 @@ jobs:
           node-version: '24'
       - name: Validate controller safety and observation
         run: node --test external_watchdog/test/*.test.mjs watchdog_verification/test/*.test.mjs
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify quiet calendar completion and health evidence without network access
+        run: python -m unittest calendar_history.test_monitor calendar_history.test_combined seats.test_monitor health.test_check health.test_external -v
       - name: Install the pinned Workers test runtime
         run: npm install --no-save --no-package-lock wrangler@4.158.0
       - name: Verify native Workers fetch without network access or credentials
         run: node watchdog_verification/runtime-test.mjs
+

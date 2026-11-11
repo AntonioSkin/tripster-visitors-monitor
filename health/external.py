@@ -9,6 +9,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from monitor import ROOT, TZ
+from calendar_history.completion import completion_stamp
 
 API = 'https://healthchecks.io/api/v3/'
 TAG = 'tripster-monitor'
@@ -118,7 +119,7 @@ def completion(task, root, now):
                     or snapshot.get('date_from') != day or not isinstance(snapshot.get('slots'), list)):
                 return None
             times.append(stamp(snapshot.get('checked_at')))
-        times.append(stamp(receipt.get('sent_at')))
+        times.append(stamp(completion_stamp(receipt)))
     else:
         measurement = read(root, f'data/fx/measurements/{obs}.json')
         receipt = read(root, f'data/fx/completed/{obs}.json')
@@ -265,4 +266,5 @@ if __name__ == '__main__':
     except Exception as exc:
         print(str(exc) if isinstance(exc, RuntimeError) else 'Ошибка внешнего контроля Healthchecks; секреты скрыты')
         raise SystemExit(1) from None
+
 

@@ -89,6 +89,44 @@ test('fresh persisted evidence suppresses recovery, regardless of old execution 
   assert.equal(client.mutations.length, 0);
 });
 
+test('frequent tasks become stale at thirty and fifteen minutes, not earlier', () => {
+  const docs=fixtures();
+  for(const id of ['2','5','7']){
+    const task=TASKS.find(t=>t.id===id),spec=evidenceSpec(task,NOW),limit=id==='7'?15:30;
+    const values=spec.files.map(path=>docs.get(`${task.repo}/${path}`));
+    if(id==='7')values.splice(0,values.length,
+      {ok:true,all_prices_checked:true,recovery_safe:true,delivery_complete:true,checked_ids:PRICE_TOURS},
+      {ok:true,recovery_safe:true,checked_at:iso(+NOW-minute)});
+    for(const age of [limit-1,limit]){
+      const stamp=iso(+NOW-age*minute);
+      if(id==='2')values.forEach(value=>value.checked_at=stamp);
+      else values[0].completed_at=stamp;
+      assert.equal(assess(task,spec,values,null,NOW).status,age<limit?'healthy':'stale',id);
+    }
+  }
+});
+
+test('quiet calendar completion proves collection without inventing Telegram delivery', async () => {
+  const client=new FakeClient(),task=TASKS[2],spec=evidenceSpec(task,NOW);
+  const receipt={observation_id:spec.key,tours:TOURS,completed_at:iso(+NOW-minute),
+    notification:'suppressed_no_changes',changes_detected:false,delivery_required:false,delivery_complete:true};
+  client.docs.set(`${task.repo}/${spec.files[0]}`,receipt);
+  assert.equal((await recover(client)).tasks[2].status,'healthy');
+  assert.equal(client.mutations.length,0);
+  for(const broken of [{delivery_complete:false},{changes_detected:true},{tours:TOURS.slice(1)},{completed_at:null},{sent_at:iso(+NOW-minute)}]){
+    assert.notEqual(assess(task,spec,[{...receipt,...broken}],null,NOW).status,'healthy');
+  }
+});
+
+test('the former daily ceiling does not stop an authorized recovery or reset its count', async () => {
+  const client=new FakeClient().stale('2'),storage=new MemoryStorage();
+  await storage.put('state',{perTask:{},history:[],daily:{day:localDate(NOW),count:96}});
+  const result=await recover(client,storage,{allow:['2']});
+  assert.equal(result.action.type,'dispatch');
+  assert.equal(result.dailyAttempts,97);assert.equal(result.dailyLimit,256);
+  assert.equal((await storage.get('state')).daily.count,97);
+});
+
 test('dispatches one overdue task through its original workflow', async () => {
   const client = new FakeClient().stale('2');
   const result = await recover(client);
@@ -173,8 +211,8 @@ test('persistent cooldown and two-attempt ceiling survive later cycles', async (
 test('an ambiguous mutation result is not retried after cooldown', async () => {
   const client = new FakeClient().stale('2'), storage = new MemoryStorage(); let posts = 0;
   client.mutate = async () => { posts++; throw new Error('test timeout'); };
-  assert.equal((await recover(client, storage)).action.reason, 'mutation_result_unknown');
-  assert.equal((await recover(client, storage, {now:new Date(+NOW + 46*minute)})).action.reason, 'previous_mutation_result_unknown');
+  assert.equal((await recover(client, storage, {allow:['2']})).action.reason, 'mutation_result_unknown');
+  assert.equal((await recover(client, storage, {allow:['2'],now:new Date(+NOW + 46*minute)})).action.reason, 'previous_mutation_result_unknown');
   assert.equal(posts, 1);
 });
 
@@ -407,3 +445,4 @@ test('redacts response content and network errors; only 404 denotes absent file'
   const down = new GitHubClient('test-only', async () => { throw new Error('private-url-and-token'); });
   await assert.rejects(down.mutate(TASKS[0],{type:'dispatch'}), /^Error: mutation_result_unknown$/);
 });
+
