@@ -203,7 +203,8 @@ def setup(key, root, now):
     channels = request(API + 'channels/', key).get('channels', [])
     if not any(c.get('kind') == 'telegram' for c in channels):
         raise RuntimeError('В этом проекте Healthchecks не найдена подключённая интеграция Telegram')
-    assigned = ','.join(c['id'] for c in channels if c.get('kind') in ('telegram', 'email'))
+    # Re-running setup after a reader update must preserve Telegram-only alerts.
+    assigned = ','.join(c['id'] for c in channels if c.get('kind') == 'telegram')
     for task, spec in SPECS.items():
         fields = dict(spec, slug=slug(task), tags=TAG, unique=['slug'], channels=assigned,
                       tz='Asia/Almaty', methods='POST', manual_resume=True,

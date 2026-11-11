@@ -131,7 +131,8 @@ class ExternalTests(unittest.TestCase):
 
         def api(url, key=None, body=None, **kwargs):
             if url.endswith('channels/'):
-                return {'channels': [{'kind': 'telegram', 'id': 'test-channel'}]}
+                return {'channels': [{'kind': 'telegram', 'id': 'test-channel'},
+                                     {'kind': 'email', 'id': 'test-email'}]}
             if body and 'slug' in body:
                 check = dict(body, uuid='00000000-0000-0000-0000-000000000001',
                              ping_url='https://hc-ping.com/00000000-0000-0000-0000-000000000001',
@@ -150,6 +151,7 @@ class ExternalTests(unittest.TestCase):
         with patch('health.external.request', side_effect=api), patch('health.external.ping', side_effect=ping) as send:
             setup('test', self.root, self.now)
         self.assertEqual(send.call_count, 5)
+        self.assertTrue(all(check['channels'] == 'test-channel' for check in checks))
         self.assertEqual(checks[2]['grace'], 90 * 60)
         self.assertEqual(first_deadline('3', self.root, self.now).hour, 13)
         self.assertEqual(first_deadline('5', self.root, self.now), self.now + timedelta(minutes=90))
