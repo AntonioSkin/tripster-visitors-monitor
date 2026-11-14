@@ -1,0 +1,17 @@
+{
+  "completed_at": "2026-11-14T20:50:42.878957+05:00",
+  "observation_id": "2026-11-14T20:00",
+  "tours": [
+    51192,
+    96862,
+    53900,
+    57434,
+    85543,
+    55575,
+    54971
+  ],
+  "changes_detected": false,
+  "delivery_required": false,
+  "delivery_complete": true,
+  "notification": "suppressed_no_changes"
+}
