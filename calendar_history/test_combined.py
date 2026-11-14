@@ -24,7 +24,7 @@ class JointTests(unittest.TestCase):
         yulia = merge_rows([history([('08:00',12),('09:00',12)], [('08:00',7)])], '2026-10-28')
         dmitry = merge_rows([history([('08:00',12)], [('08:00',9)])], '2026-10-28')
         text = report_text({'yulia': yulia, 'dmitry': dmitry})
-        self.assertIn('Юлия — продано 5 мест (всего —)', text)
+        self.assertIn('Юлия — продано 5 мест (всего 5)', text)
         self.assertIn('Дмитрий — продано 3 места (всего 3)', text)
         self.assertNotIn('Всего —', text)
         self.assertEqual(text.count('29.10.2026:'), 1)
@@ -224,3 +224,80 @@ class QuietCompletionTests(unittest.TestCase):
     def test_partial_collection_cannot_be_certified_as_quiet_success(self):
         self.run_case(fail_collect=True)
 
+
+
+class ClosureHistoryTests(unittest.TestCase):
+    def test_screenshot_two_sales_and_two_closed_times_keep_total_two(self):
+        from calendar_history.combined import interval_rows
+        snapshots = [
+            {'date_from': '2026-11-13', 'checked_at': '2026-11-13T23:46:14+05:00',
+             'observation_id': '2026-11-13T23:00',
+             'slots': [{'key': '2026-11-21T' + at, 'available': 6}
+                       for at in ('05:15', '05:30', '05:45')]},
+            {'date_from': '2026-11-14', 'checked_at': '2026-11-14T08:04:53+05:00',
+             'observation_id': '2026-11-14T08:00',
+             'slots': [{'key': '2026-11-21T05:45', 'available': 4}]},
+        ]
+        dmitry = merge_rows([interval_rows(snapshots)], '2026-11-14T08:00')
+        self.assertEqual(dmitry[0]['daily'], 2)
+        self.assertEqual(dmitry[0]['total'], 2)
+        self.assertEqual(dmitry[0]['final_remaining'], '6 6 —')
+        text = report_text({'yulia': [], 'dmitry': dmitry})
+        self.assertIn('Дмитрий — продано 2 места (всего 2)', text)
+
+    @staticmethod
+    def snapshots(counts, departure='2026-12-04'):
+        return [
+            {'date_from': '2026-11-05', 'checked_at': f'2026-11-05T{hour:02}:00:00+05:00',
+             'observation_id': f'2026-11-05T{hour:02}:00',
+             'slots': [] if count is None else [
+                 {'key': departure + 'T08:00', 'available': count}]}
+            for hour, count in zip((8, 11, 14, 17, 20, 23), counts)
+        ]
+
+    def test_total_survives_repeated_closure_and_is_not_a_sale(self):
+        from calendar_history.combined import interval_rows
+        rows = interval_rows(self.snapshots([12, 8, None, None]))
+        for row in rows[-2:]:
+            self.assertIsNone(row['remaining'])
+            self.assertIsNone(row['daily_decrease'])
+            self.assertEqual(row['total_decrease'], 4)
+            self.assertEqual(row['final_remaining'], 8)
+        merged = merge_rows([rows], '2026-11-05T17:00')[0]
+        self.assertEqual(merged['total'], 4)
+        self.assertEqual(merged['final_remaining'], '8')
+        self.assertFalse(merged['changed'])
+
+    def test_reopening_then_reclosing_uses_latest_known_count(self):
+        from calendar_history.combined import interval_rows
+        rows = interval_rows(self.snapshots([12, 8, None, 9, 7, None]))
+        self.assertIsNone(rows[3]['daily_decrease'])
+        self.assertIsNone(rows[3]['final_remaining'])
+        self.assertEqual(rows[3]['total_decrease'], 3)
+        self.assertEqual(rows[4]['daily_decrease'], 2)
+        self.assertEqual(rows[-1]['final_remaining'], 7)
+        self.assertEqual(rows[-1]['total_decrease'], 5)
+
+    def test_observed_zero_is_retained_as_zero(self):
+        from calendar_history.combined import interval_rows
+        rows = interval_rows(self.snapshots([12, 0, None]))
+        self.assertEqual(rows[1]['daily_decrease'], 12)
+        self.assertEqual(rows[1]['final_remaining'], 0)
+        self.assertEqual(rows[-1]['final_remaining'], 0)
+        self.assertEqual(rows[-1]['total_decrease'], 12)
+        self.assertIsNone(rows[-1]['daily_decrease'])
+
+    def test_past_date_finalizes_after_a_missed_departure_day(self):
+        from calendar_history.combined import interval_rows
+        snapshots = self.snapshots([12, 9], departure='2026-11-06')
+        snapshots += [
+            {'date_from': day, 'checked_at': day + 'T08:00:00+05:00',
+             'observation_id': day + 'T08:00', 'slots': []}
+            for day in ('2026-11-07', '2026-11-08')
+        ]
+        rows = interval_rows(snapshots)
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(rows[-1]['observed'], '2026-11-07T08:00')
+        self.assertEqual(rows[-1]['final_remaining'], 9)
+        self.assertEqual(rows[-1]['total_decrease'], 3)
+        self.assertIsNone(rows[-1]['daily_decrease'])

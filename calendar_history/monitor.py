@@ -32,30 +32,39 @@ def run_all(module):
         raise RuntimeError(f"Не завершены экскурсии: {failed}")
 
 
-def build_rows(snapshots):
-    baselines, rows = {}, []
+def build_rows(snapshots, *, intervals=False):
+    baselines, last_available, rows = {}, {}, []
     previous = {}
     previous_day = None
-    for snapshot in sorted(snapshots, key=lambda s: s['date_from']):
+    expired = set()
+    order = (lambda s: s.get('checked_at', s['date_from'])) if intervals else (lambda s: s['date_from'])
+    for snapshot in sorted(snapshots, key=order):
         day = snapshot['date_from']
+        observed = snapshot.get('observation_id', day) if intervals else day
         current = {s['key']: s for s in snapshot['slots']}
         yesterday = (date.fromisoformat(day) - timedelta(days=1)).isoformat()
         for key, slot in current.items():
-            baselines.setdefault(key, (day, slot['available']))
+            baselines.setdefault(key, (observed, slot['available']))
+            last_available[key] = slot['available']
         # Keep absent departures explicitly unknown, and all historical rows forever.
         for key in sorted(baselines):
             if key[:10] < day:
-                continue
+                if key in expired:
+                    continue
+                # Finalize once even if no observation was made on departure day.
+                expired.add(key)
             first_day, initial = baselines[key]
-            slot = current.get(key)
+            slot = current.get(key) if key[:10] >= day else None
             available = slot['available'] if slot else None
             old = previous.get(key)
-            daily = old['available'] - available if old and available is not None and previous_day == yesterday else None
-            rows.append({'observed': day, 'departure': key[:10], 'time': key[11:],
+            daily = (old['available'] - available
+                     if old and slot and (intervals or previous_day == yesterday) else None)
+            rows.append({'observed': observed, 'departure': key[:10], 'time': key[11:],
                          'first_seen': first_day, 'initial': initial, 'remaining': available,
                          'daily_decrease': daily,
-                         'total_decrease': initial - available if available is not None else None,
-                         'status': 'observed' if slot else 'not_published'})
+                         'total_decrease': initial - last_available[key],
+                         'status': 'observed' if slot else 'not_published',
+                         'final_remaining': last_available[key] if not slot or available == 0 else None})
         previous, previous_day = current, day
     return rows
 
@@ -63,7 +72,7 @@ def build_rows(snapshots):
 HEADERS = {'observed': 'Дата замера', 'departure': 'Дата выезда', 'time': 'Время',
            'first_seen': 'Первый замер', 'initial': 'Начальный остаток', 'remaining': 'Остаток',
            'daily_decrease': 'Чистое уменьшение за сутки', 'total_decrease': 'Чистое уменьшение с начала',
-           'status': 'Статус'}
+           'status': 'Статус', 'final_remaining': 'Конечный остаток'}
 
 
 CSV_HEADERS = {k: v for k, v in HEADERS.items() if k not in {'time', 'first_seen', 'status'}}
@@ -80,7 +89,7 @@ def group_rows(rows):
         row = {'observed': key[0], 'departure': key[1]}
         for field in HEADERS:
             if field not in row:
-                row[field] = ' '.join('—' if r[field] is None else str(r[field]) for r in slots)
+                row[field] = ' '.join('—' if r.get(field) is None else str(r[field]) for r in slots)
         result.append(row)
     return result
 
