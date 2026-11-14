@@ -104,6 +104,21 @@ class ExternalTests(unittest.TestCase):
         (self.root / CALENDAR_TOURS[54971] / f'measurements/{self.obs}.json').unlink()
         self.assertIsNone(completion('3', self.root, self.now))
 
+    def test_calendar_can_complete_silently_but_still_needs_every_snapshot(self):
+        receipt={'completed_at':self.at.isoformat(),'observation_id':self.obs,'tours':list(CALENDAR_TOURS),
+            'notification':'suppressed_no_changes','changes_detected':False,
+            'delivery_required':False,'delivery_complete':True}
+        self.save(f'data/calendar_history/joint/telegram/{self.obs}.json',receipt)
+        for tour,base in CALENDAR_TOURS.items():
+            self.save(f'{base}/measurements/{self.obs}.json',{
+                'experience_id':tour,'observation_id':self.obs,'date_from':'2026-10-28',
+                'checked_at':self.at.isoformat(),'slots':[]})
+        self.assertEqual(completion('3',self.root,self.now),self.at)
+        self.assertNotIn('sent_at',receipt)
+        receipt['delivery_complete']=False
+        self.save(f'data/calendar_history/joint/telegram/{self.obs}.json',receipt)
+        self.assertIsNone(completion('3',self.root,self.now))
+
     def test_noop_cannot_extend_external_deadline(self):
         self.fx()
         check = {'last_ping': self.now.isoformat(), 'grace': 7200, 'status': 'up'}
@@ -116,7 +131,8 @@ class ExternalTests(unittest.TestCase):
 
         def api(url, key=None, body=None, **kwargs):
             if url.endswith('channels/'):
-                return {'channels': [{'kind': 'telegram', 'id': 'test-channel'}]}
+                return {'channels': [{'kind': 'telegram', 'id': 'test-channel'},
+                                     {'kind': 'email', 'id': 'test-email'}]}
             if body and 'slug' in body:
                 check = dict(body, uuid='00000000-0000-0000-0000-000000000001',
                              ping_url='https://hc-ping.com/00000000-0000-0000-0000-000000000001',
@@ -135,6 +151,7 @@ class ExternalTests(unittest.TestCase):
         with patch('health.external.request', side_effect=api), patch('health.external.ping', side_effect=ping) as send:
             setup('test', self.root, self.now)
         self.assertEqual(send.call_count, 5)
+        self.assertTrue(all(check['channels'] == 'test-channel' for check in checks))
         self.assertEqual(checks[2]['grace'], 90 * 60)
         self.assertEqual(first_deadline('3', self.root, self.now).hour, 13)
         self.assertEqual(first_deadline('5', self.root, self.now), self.now + timedelta(minutes=90))
@@ -157,4 +174,5 @@ class ExternalTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
 

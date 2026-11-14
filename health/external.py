@@ -9,6 +9,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from monitor import ROOT, TZ
+from calendar_history.completion import completion_stamp
 
 API = 'https://healthchecks.io/api/v3/'
 TAG = 'tripster-monitor'
@@ -118,7 +119,7 @@ def completion(task, root, now):
                     or snapshot.get('date_from') != day or not isinstance(snapshot.get('slots'), list)):
                 return None
             times.append(stamp(snapshot.get('checked_at')))
-        times.append(stamp(receipt.get('sent_at')))
+        times.append(stamp(completion_stamp(receipt)))
     else:
         measurement = read(root, f'data/fx/measurements/{obs}.json')
         receipt = read(root, f'data/fx/completed/{obs}.json')
@@ -202,7 +203,8 @@ def setup(key, root, now):
     channels = request(API + 'channels/', key).get('channels', [])
     if not any(c.get('kind') == 'telegram' for c in channels):
         raise RuntimeError('В этом проекте Healthchecks не найдена подключённая интеграция Telegram')
-    assigned = ','.join(c['id'] for c in channels if c.get('kind') in ('telegram', 'email'))
+    # Re-running setup after a reader update must preserve Telegram-only alerts.
+    assigned = ','.join(c['id'] for c in channels if c.get('kind') == 'telegram')
     for task, spec in SPECS.items():
         fields = dict(spec, slug=slug(task), tags=TAG, unique=['slug'], channels=assigned,
                       tz='Asia/Almaty', methods='POST', manual_resume=True,
@@ -265,4 +267,5 @@ if __name__ == '__main__':
     except Exception as exc:
         print(str(exc) if isinstance(exc, RuntimeError) else 'Ошибка внешнего контроля Healthchecks; секреты скрыты')
         raise SystemExit(1) from None
+
 
