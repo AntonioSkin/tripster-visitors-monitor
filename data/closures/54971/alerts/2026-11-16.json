@@ -1,0 +1,14 @@
+[
+  {
+    "key": "2026-11-23T05:30",
+    "date": "2026-11-23",
+    "time": "05:30",
+    "available": null,
+    "previous": 12,
+    "previous_observed_at": "2026-11-16T22:11:39+05:00",
+    "kind": "unpublished",
+    "detected_at": "2026-11-16T23:39:07+05:00",
+    "event_id": "39c0e97e445089fcc8795381bcc7cdb089d23941b29ca8a9df92fce1a39795d3",
+    "sent_at": "2026-11-16T23:39:07.487224+05:00"
+  }
+]
