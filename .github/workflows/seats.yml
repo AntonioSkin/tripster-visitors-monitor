@@ -18,7 +18,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   seats:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 12
     outputs:
       changed: ${{ steps.upload.outcome == 'success' && steps.package.outputs.changed == 'true' }}

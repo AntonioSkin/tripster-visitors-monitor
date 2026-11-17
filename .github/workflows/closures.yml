@@ -20,7 +20,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   closures:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     outputs:
       changed: ${{ steps.upload.outcome == 'success' && steps.package.outputs.changed == 'true' }}
