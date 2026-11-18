@@ -1,6 +1,6 @@
 {
   "initialized": true,
-  "error_notified": false,
+  "error_notified": true,
   "notified": {},
   "last_success": "2026-11-18T04:56:02+05:00"
 }
