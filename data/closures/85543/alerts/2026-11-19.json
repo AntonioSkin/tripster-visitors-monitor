@@ -22,5 +22,17 @@
     "detected_at": "2026-11-19T03:44:05+05:00",
     "event_id": "febe9b15e9b8f11b058b00a8fa55364eb0d393476e7ae4c6eb8168f2c5a5fb7e",
     "sent_at": "2026-11-19T03:44:05.904300+05:00"
+  },
+  {
+    "key": "2026-11-19T05:45",
+    "date": "2026-11-19",
+    "time": "05:45",
+    "available": null,
+    "previous": 6,
+    "previous_observed_at": "2026-11-19T03:44:05+05:00",
+    "kind": "unpublished",
+    "detected_at": "2026-11-19T04:10:34+05:00",
+    "event_id": "74cd285b98d84f47eccff82bc086a9be130b1d4c349c9e4e93ea9959b9912d4a",
+    "sent_at": "2026-11-19T04:10:35.204815+05:00"
   }
 ]
