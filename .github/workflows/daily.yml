@@ -1,8 +1,14 @@
 name: Daily visitors
+run-name: ${{ inputs.watchdog_request_id && format('tripster-recovery:{0}', inputs.watchdog_request_id) || 'Daily visitors' }}
 on:
   schedule:
     - cron: '7,27,47 * * * *'
   workflow_dispatch:
+    inputs:
+      watchdog_request_id:
+        description: Optional recovery command correlation ID
+        required: false
+        type: string
   push:
     branches: [main]
     paths:

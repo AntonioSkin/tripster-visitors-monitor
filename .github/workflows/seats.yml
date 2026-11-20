@@ -1,8 +1,14 @@
 name: Tripster seat alerts
+run-name: ${{ inputs.watchdog_request_id && format('tripster-recovery:{0}', inputs.watchdog_request_id) || 'Tripster seat alerts' }}
 on:
   schedule:
     - cron: '13,43 * * * *'
   workflow_dispatch:
+    inputs:
+      watchdog_request_id:
+        description: Optional recovery command correlation ID
+        required: false
+        type: string
   push:
     branches: [main]
     paths:

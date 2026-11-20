@@ -1,9 +1,15 @@
 name: Task 6 - new Zakazbiletov tickets
+run-name: ${{ inputs.watchdog_request_id && format('tripster-recovery:{0}', inputs.watchdog_request_id) || 'Task 6 - new Zakazbiletov tickets' }}
 
 on:
   schedule:
     - cron: '0 6 * * *'
   workflow_dispatch:
+    inputs:
+      watchdog_request_id:
+        description: Optional recovery command correlation ID
+        required: false
+        type: string
   push:
     branches: [main]
     paths:
