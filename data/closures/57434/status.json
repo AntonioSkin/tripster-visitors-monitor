@@ -1,7 +1,5 @@
 {
-  "ok": true,
-  "checked_at": "2026-11-21T00:41:43+05:00",
-  "completed_at": "2026-11-21T00:41:43.087460+05:00",
-  "slots": 82,
-  "alerts": 0
+  "ok": false,
+  "checked_at": "2026-11-21T01:25:14.742570+05:00",
+  "stage": "collection"
 }
