@@ -191,11 +191,37 @@ export class GitHubClient {
     if (!Array.isArray(d.artifacts) || d.total_count > d.artifacts.length) throw new SafeError('artifact_list_incomplete');
     return d.artifacts;
   }
+  async commandEvidence(task, pending) {
+    if (pending.type === 'rerun_save' && Number.isSafeInteger(pending.runId)) {
+      const run = await this.request(task.repo, `/actions/runs/${pending.runId}`);
+      if (run?.id !== pending.runId || run.head_branch !== 'main' ||
+          run.path !== `.github/workflows/${task.workflow}`) throw new SafeError('unexpected_workflow');
+      return Number.isSafeInteger(run.run_attempt) && run.run_attempt > pending.runAttempt ? run.id : null;
+    }
+    if (pending.type !== 'dispatch' || !/^wd-[1-7]-[a-z0-9]+-[0-9]+$/.test(pending.requestId ?? '') ||
+        !Number.isFinite(pending.sentAt)) return null;
+    const since = encodeURIComponent(`>=${new Date(pending.sentAt - MINUTE).toISOString()}`);
+    const data = await this.request(task.repo,
+      `/actions/workflows/${task.workflow}/runs?branch=main&event=workflow_dispatch&created=${since}&per_page=100`);
+    if (!Array.isArray(data?.workflow_runs) || !Number.isSafeInteger(data.total_count) ||
+        data.total_count !== data.workflow_runs.length) throw new SafeError('command_run_list_incomplete');
+    const match = data.workflow_runs.find(run => run.head_branch === 'main' &&
+      run.path === `.github/workflows/${task.workflow}` && run.event === 'workflow_dispatch' &&
+      run.display_title === `tripster-recovery:${pending.requestId}` &&
+      Date.parse(run.created_at) >= pending.sentAt - MINUTE);
+    return Number.isSafeInteger(match?.id) ? match.id : null;
+  }
   async mutate(task, action) {
     if (!TASKS.some(t => t.id === task.id && t.repo === task.repo && t.workflow === task.workflow)) {
       throw new SafeError('mutation_task_not_allowed');
     }
-    if (action.type === 'dispatch') return this.request(task.repo, `/actions/workflows/${task.workflow}/dispatches`, {body:{ref:'main'}});
+    if (action.type === 'dispatch') {
+      if (action.requestId !== undefined && !/^wd-[1-7]-[a-z0-9]+-[0-9]+$/.test(action.requestId)) {
+        throw new SafeError('invalid_request_id');
+      }
+      return this.request(task.repo, `/actions/workflows/${task.workflow}/dispatches`, {
+        body:{ref:'main', ...(action.requestId ? {inputs:{watchdog_request_id:action.requestId}} : {})}});
+    }
     if (action.type === 'rerun_save' && Number.isSafeInteger(action.jobId) && action.jobId > 0) {
       return this.request(task.repo, `/actions/jobs/${action.jobId}/rerun`, {body:{}});
     }
@@ -218,7 +244,19 @@ function workflowSafe(source, task) {
     /^concurrency:\s*$/m.test(source);
 }
 
-export function restoreAction(latest, jobs = [], artifacts = [], taskId) {
+export function priceLedgerSafe(ledger) {
+  const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+  return object(ledger) && ['prices','sent_notifications','pending'].every(key => object(ledger[key])) &&
+    Object.keys(ledger.pending).length === 0 && PRICE_TOURS.every(id =>
+      Number.isFinite(ledger.prices[id]?.value) && ledger.prices[id].value > 0 && ledger.prices[id].currency === 'RUB');
+}
+
+function supportsRequestId(source) {
+  return /^      watchdog_request_id:\s*$/m.test(source) &&
+    /^run-name:.*format\('tripster-recovery:\{0\}', inputs\.watchdog_request_id\)/m.test(source);
+}
+
+export function restoreAction(latest, jobs = [], artifacts = [], taskId, {safePriceLedger = false} = {}) {
   if (!latest || latest.status !== 'completed') return {type:'hold', reason:'no_completed_run'};
   if (latest.conclusion === 'success') return {type:'dispatch'};
   const saves = jobs.filter(j => /^save(?: \/ save)?$/.test(j.name));
@@ -233,12 +271,20 @@ export function restoreAction(latest, jobs = [], artifacts = [], taskId) {
   }
   // A failed collector can have partially sent alerts. Require its writer to have saved deduplication state.
   if (saves.length === 1 && saves[0].conclusion === 'success') return {type:'dispatch'};
+  // Task 7 reserves every Telegram send in the canonical ledger BEFORE the POST.
+  // A lost bundle cannot erase that ledger. Never generalize this exception to tasks 1–6.
+  if (taskId === '7' && safePriceLedger && collect.length === 1 && saves.length === 1 &&
+      ['failure','cancelled','skipped'].includes(saves[0].conclusion) &&
+      collect[0].steps?.some(step => step.name === 'Check all prices and preserve delivery reservations')) {
+    return {type:'dispatch'};
+  }
   return {type:'hold', reason:'delivery_or_persistence_uncertain'};
 }
 
 function incidentFor(result, state) {
   const key = `${result.key}:${result.lastSuccess ?? 'missing'}`;
   const previous = state.perTask[result.id];
+  if (previous?.ambiguous && previous.pendingMutation) return previous;
   return previous?.key === key ? previous : {key, attempts:0};
 }
 
@@ -266,7 +312,7 @@ function chooseCandidate(ordered, state, client, now, allow) {
   return urgent[0] ?? ready[0] ?? candidates[0];
 }
 
-export async function cycle({client, storage, now = new Date(), mode = 'observe', allow = []}) {
+export async function cycle({client, storage, now = new Date(), mode = 'observe', allow = [], reconcile = false}) {
   if (!['observe', 'recover'].includes(mode)) throw new SafeError('invalid_mode');
   const state = await storage.get('state') ?? {perTask:{}, history:[], daily:{}};
   state.priorityHolds ??= {};
@@ -287,16 +333,39 @@ export async function cycle({client, storage, now = new Date(), mode = 'observe'
         reason:e instanceof SafeError ? e.message : 'read_failed'});
     }
   }
+  let reconciliation = null, reconciliationFailed = false;
+  if (reconcile && mode === 'recover' && !results.some(r => r.status === 'unknown')) {
+    // One bounded read-only reconciliation per cycle. Absence is NEVER proof of rejection.
+    const cursor = state.reconcileCursor ?? 0;
+    const pending = [...results.slice(cursor), ...results.slice(0,cursor)].find(r => allow.includes(r.id) && state.perTask[r.id]?.ambiguous &&
+      state.perTask[r.id].pendingMutation && +now - state.perTask[r.id].lastAttempt >= 5 * MINUTE);
+    if (pending) {
+      state.reconcileCursor = (results.indexOf(pending) + 1) % TASKS.length;
+      try {
+        const incident = state.perTask[pending.id];
+        const runId = await client.commandEvidence(pending.task, incident.pendingMutation);
+        reconciliation = {task:pending.id, outcome:runId ? 'command_seen' : 'command_not_visible'};
+        if (runId) {
+          incident.ambiguous = false;
+          delete incident.pendingMutation;
+          // Preserve attempts, lastAttempt and daily count, including the normal cooldown.
+        }
+      } catch {
+        reconciliationFailed = true;
+        reconciliation = {task:pending.id, outcome:'command_read_unavailable'};
+      }
+    }
+  }
   // An unavailable/partial read must never become a reason to restart anything.
   let action = {type:'none', reason:mode === 'observe' ? 'observation_only' : 'no_eligible_task'};
   const cursor = state.cursor ?? 0;
   const ordered = [...results.slice(cursor), ...results.slice(0, cursor)];
   const candidate = chooseCandidate(ordered, state, client, now, allow);
-  if (mode === 'recover' && candidate && results.some(r => r.status === 'unknown')) {
+  if (mode === 'recover' && candidate && (reconciliationFailed || results.some(r => r.status === 'unknown'))) {
     action = {type:'hold', task:candidate.id, reason:'incomplete_observation'};
   }
   if (mode === 'recover' && candidate) state.cursor = (results.indexOf(candidate) + 1) % TASKS.length;
-  if (mode === 'recover' && candidate && !results.some(r => r.status === 'unknown')) {
+  if (mode === 'recover' && candidate && !reconciliationFailed && !results.some(r => r.status === 'unknown')) {
     const task = candidate.task;
     const incident = incidentFor(candidate, state);
     state.perTask[task.id] = incident;
@@ -310,26 +379,43 @@ export async function cycle({client, storage, now = new Date(), mode = 'observe'
       const fresh = await readTask(client, task, now, ref);
       if (!fresh.eligible) action = {type:'hold', reason:'recovered_during_check'};
       else if (await client.hasActive(task)) action = {type:'hold', reason:'run_already_active'};
-      else if (!workflowSafe(await client.file(task.repo, `.github/workflows/${task.workflow}`, ref, false), task)) {
-        action = {type:'hold', reason:'workflow_lock_not_verified'};
-      } else {
-        const jobs = fresh.latest?.conclusion === 'success' ? [] : await client.jobs(task, fresh.latest);
-        const artifacts = jobs.some(j => /^save(?: \/ save)?$/.test(j.name) && j.conclusion === 'failure')
-          ? await client.artifacts(task, fresh.latest) : [];
-        action = restoreAction(fresh.latest, jobs, artifacts, task.id);
-        if (action.type !== 'hold') {
-          incident.attempts++;
-          incident.lastAttempt = +now;
-          incident.ambiguous = true;
-          state.daily.count++;
-          // Reserve BEFORE the external mutation. A crash/timeout cannot immediately replay it.
-          await storage.put('state', structuredClone(state));
-          try {
-            await client.mutate(task, action);
-            incident.ambiguous = false;
-            action = {...action, task:task.id, outcome:'accepted_waiting_for_fresh_evidence'};
-          } catch {
-            action = {type:'hold', task:task.id, reason:'mutation_result_unknown'};
+      else {
+        const workflow = await client.file(task.repo, `.github/workflows/${task.workflow}`, ref, false);
+        if (!workflowSafe(workflow, task)) {
+          action = {type:'hold', reason:'workflow_lock_not_verified'};
+        } else {
+          const jobs = fresh.latest?.conclusion === 'success' ? [] : await client.jobs(task, fresh.latest);
+          const artifacts = jobs.some(j => /^save(?: \/ save)?$/.test(j.name) && j.conclusion === 'failure')
+            ? await client.artifacts(task, fresh.latest) : [];
+          let safePriceLedger = false;
+          if (reconcile && task.id === '7') {
+            safePriceLedger = /run: python safe_monitor\.py\s*$/m.test(workflow) &&
+              priceLedgerSafe(await client.file(task.repo, 'data/watchdog/runtime.json', ref));
+          }
+          action = reconcile && task.id === '7' && !safePriceLedger
+            ? {type:'hold', reason:'price_delivery_or_persistence_not_verified'}
+            : restoreAction(fresh.latest, jobs, artifacts, task.id, {safePriceLedger});
+          if (action.type === 'dispatch' && reconcile && supportsRequestId(workflow)) {
+            action = {...action, requestId:`wd-${task.id}-${(+now).toString(36)}-${state.daily.count + 1}`};
+          }
+          if (action.type !== 'hold') {
+            incident.attempts++;
+            incident.lastAttempt = +now;
+            incident.ambiguous = true;
+            state.daily.count++;
+            if (reconcile) incident.pendingMutation = {type:action.type, sentAt:+now,
+              ...(action.requestId ? {requestId:action.requestId} : {}),
+              runId:fresh.latest.id, runAttempt:fresh.latest.run_attempt ?? 1};
+            // Reserve BEFORE the external mutation. A crash/timeout cannot immediately replay it.
+            await storage.put('state', structuredClone(state));
+            try {
+              await client.mutate(task, action);
+              incident.ambiguous = false;
+              delete incident.pendingMutation;
+              action = {...action, task:task.id, outcome:'accepted_waiting_for_fresh_evidence'};
+            } catch {
+              action = {type:'hold', task:task.id, reason:'mutation_result_unknown'};
+            }
           }
         }
       }
@@ -339,6 +425,7 @@ export async function cycle({client, storage, now = new Date(), mode = 'observe'
   }
   if (candidate && action.type === 'hold') action = {...action, task:candidate.id};
   const summary = {checkedAt:now.toISOString(), timezone:'Asia/Almaty', mode,
+    ...(reconciliation ? {reconciliation} : {}),
     dailyAttempts:state.daily.count, dailyLimit:MAX_DAILY_ATTEMPTS,
     tasks:results.map(({task, spec, latest, ref, eligible, ...r}) => r), action, githubRequests:client.calls};
   state.history = [...state.history.slice(-99), summary];

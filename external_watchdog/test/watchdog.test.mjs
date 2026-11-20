@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {TASKS, TOURS, VISITORS, PRICE_TOURS, MAX_DAILY_ATTEMPTS, GitHubClient, SafeError, evidenceSpec, assess,
-  restoreAction, cycle, localDate} from '../core.mjs';
+  restoreAction, cycle, localDate, priceLedgerSafe} from '../core.mjs';
 import worker, {WatchdogState} from '../worker.mjs';
 
 const NOW = new Date('2026-11-08T10:00:00Z'); // 15:00 in Shymkent.
@@ -444,5 +444,189 @@ test('redacts response content and network errors; only 404 denotes absent file'
   assert.equal(await absent.file(TASKS[0].repo,'data/a.json','main'), null);
   const down = new GitHubClient('test-only', async () => { throw new Error('private-url-and-token'); });
   await assert.rejects(down.mutate(TASKS[0],{type:'dispatch'}), /^Error: mutation_result_unknown$/);
+});
+
+const taggedWorkflow = id => `on:\n  workflow_dispatch:\n    inputs:\n      watchdog_request_id:\n        type: string\nrun-name: \${{ inputs.watchdog_request_id && format('tripster-recovery:{0}', inputs.watchdog_request_id) }}\nconcurrency:\n  group: tripster-task-${id}\n  queue: max\n  cancel-in-progress: false\n${id === '7' ? '        run: python safe_monitor.py\n' : ''}`;
+const ledger = () => ({prices:Object.fromEntries(PRICE_TOURS.map(id => [id,{value:100,currency:'RUB'}])),
+  sent_notifications:{},pending:{}});
+
+function priceFailureClient() {
+  const client = new FakeClient(), task = TASKS[6], spec = evidenceSpec(task,NOW);
+  client.docs.set(`${task.repo}/${spec.files[1]}`,{ok:true,recovery_safe:true,checked_at:iso(+NOW-minute)});
+  client.file = async (repo,path) => {
+    client.calls++;
+    if (path.startsWith('.github/workflows/')) return taggedWorkflow(TASKS.find(t => t.repo===repo && path.endsWith(t.workflow)).id);
+    if (path === 'data/watchdog/runtime.json') return client.ledger;
+    return structuredClone(client.docs.get(`${repo}/${path}`) ?? null);
+  };
+  client.ledger = ledger();
+  client.latest = async task => ({id:Number(task.id),run_attempt:1,status:'completed',conclusion:task.id==='7'?'failure':'success'});
+  client.jobs = async () => [{id:70,name:'collect',conclusion:'failure',
+    steps:[{name:'Check all prices and preserve delivery reservations',conclusion:'success'}]},
+    {id:71,name:'save',conclusion:'skipped'}];
+  return client;
+}
+
+test('lost task 7 bundle permits recovery only with a complete canonical ledger and safe collector', async () => {
+  const client=priceFailureClient(),storage=new MemoryStorage();
+  const result=await recover(client,storage,{allow:['7'],reconcile:true});
+  assert.equal(result.action.type,'dispatch');
+  assert.match(result.action.requestId,/^wd-7-[a-z0-9]+-1$/);
+  assert.equal(result.tasks[6].status,'stale');
+  assert.equal((await storage.get('state')).daily.count,1);
+  assert.equal((await recover(priceFailureClient(),undefined,{allow:['7']})).action.reason,'delivery_or_persistence_uncertain');
+});
+
+test('canonical pending sends, missing baselines and failed reads never authorize task 7 replay', async () => {
+  for (const bad of [null,{}, {...ledger(),pending:{51192:{prepared_at:iso(+NOW)}}},
+    {...ledger(),pending:[]}, {...ledger(),prices:{}}, {...ledger(),sent_notifications:null}]) {
+    assert.equal(priceLedgerSafe(bad),false);
+    const client=priceFailureClient();client.ledger=bad;
+    assert.equal((await recover(client,undefined,{allow:['7'],reconcile:true})).action.type,'hold');
+    assert.equal(client.mutations.length,0);
+  }
+  const client=priceFailureClient(),file=client.file.bind(client);
+  client.file=async (repo,path) => {if(path.endsWith('runtime.json'))throw new SafeError('github_read_unavailable');return file(repo,path);};
+  assert.equal((await recover(client,undefined,{allow:['7'],reconcile:true})).action.type,'hold');
+  assert.equal(client.mutations.length,0);
+});
+
+test('the ledger exception cannot restart other collectors or an unrecognized price collector', () => {
+  const run={id:7,status:'completed',conclusion:'failure'};
+  const jobs=[{name:'collect',conclusion:'cancelled',steps:[{name:'Check all prices and preserve delivery reservations'}]},
+    {name:'save',conclusion:'skipped'}];
+  assert.equal(restoreAction(run,jobs,[],'7',{safePriceLedger:true}).type,'dispatch');
+  assert.equal(restoreAction(run,jobs,[],'6',{safePriceLedger:true}).type,'hold');
+  assert.equal(restoreAction(run,[{...jobs[0],steps:[]},jobs[1]],[],'7',{safePriceLedger:true}).type,'hold');
+});
+
+test('marked dispatch is persisted before POST; positive reconciliation preserves cooldown and attempts', async () => {
+  const client=priceFailureClient(),storage=new MemoryStorage();let sent=0,reads=0;
+  client.mutate=async (task,action) => {
+    sent++;
+    const reserved=(await storage.get('state')).perTask['7'];
+    assert.equal(reserved.pendingMutation.requestId,action.requestId);
+    assert.equal(reserved.ambiguous,true);
+    if(sent===1)throw new Error('lost response');
+  };
+  client.commandEvidence=async (task,pending) => {reads++;assert.match(pending.requestId,/^wd-7-/);return 99;};
+  assert.equal((await recover(client,storage,{allow:['7'],reconcile:true})).action.reason,'mutation_result_unknown');
+  await recover(client,storage,{allow:['7'],reconcile:true,now:new Date(+NOW+4*minute)});
+  assert.equal(reads,0);
+  const seen=await recover(client,storage,{allow:['7'],reconcile:true,now:new Date(+NOW+5*minute)});
+  assert.deepEqual(seen.reconciliation,{task:'7',outcome:'command_seen'});
+  assert.equal(seen.action.reason,'cooldown');
+  const state=await storage.get('state');
+  assert.equal(state.perTask['7'].attempts,1);assert.equal(state.daily.count,1);
+  assert.equal(state.perTask['7'].ambiguous,false);
+  await recover(client,storage,{allow:['7'],reconcile:true,now:new Date(+NOW+46*minute)});
+  assert.equal(sent,2);
+  assert.equal((await recover(client,storage,{allow:['7'],reconcile:true,now:new Date(+NOW+92*minute)})).action.reason,'attempt_limit');
+});
+
+test('absence of a marked run never releases ambiguity or replays a command', async () => {
+  const client=priceFailureClient(),storage=new MemoryStorage();let sent=0;
+  client.mutate=async () => {sent++;throw new Error('lost response');};
+  client.commandEvidence=async () => null;
+  await recover(client,storage,{allow:['7'],reconcile:true});
+  for(const minutes of [5,46,92]) {
+    const result=await recover(client,storage,{allow:['7'],reconcile:true,now:new Date(+NOW+minutes*minute)});
+    assert.equal(result.reconciliation.outcome,'command_not_visible');
+    assert.equal(result.action.reason,'previous_mutation_result_unknown');
+  }
+  assert.equal(sent,1);
+});
+
+test('an unavailable command read prevents writes and the feature switch restores old holds', async () => {
+  const client=priceFailureClient(),storage=new MemoryStorage();let sent=0,reads=0;
+  client.mutate=async () => {sent++;throw new Error('lost response');};
+  client.commandEvidence=async () => {reads++;throw new Error('unavailable');};
+  await recover(client,storage,{allow:['7'],reconcile:true});
+  const failed=await recover(client,storage,{allow:['7'],reconcile:true,now:new Date(+NOW+46*minute)});
+  assert.equal(failed.action.reason,'incomplete_observation');
+  await recover(client,storage,{allow:['7'],reconcile:false,now:new Date(+NOW+92*minute)});
+  assert.equal(reads,1);assert.equal(sent,1);
+  assert.equal((await storage.get('state')).daily.count,1);
+});
+
+test('an unseen command cannot starve reconciliation of a different task',async()=>{
+  const client=priceFailureClient().stale('2'),storage=new MemoryStorage();
+  const state={perTask:{},history:[],daily:{day:localDate(NOW),count:2}};
+  for(const id of ['2','7'])state.perTask[id]={key:`rolling:${id==='7'?'missing':iso(+NOW-120*minute)}`,
+    ambiguous:true,attempts:1,lastAttempt:+NOW-10*minute,
+    pendingMutation:{type:'dispatch',requestId:`wd-${id}-test-1`,sentAt:+NOW-10*minute}};
+  await storage.put('state',state);
+  client.commandEvidence=async task=>task.id==='7'?99:null;
+  assert.equal((await recover(client,storage,{allow:['2','7'],reconcile:true})).reconciliation.task,'2');
+  const next=await recover(client,storage,{allow:['2','7'],reconcile:true});
+  assert.deepEqual(next.reconciliation,{task:'7',outcome:'command_seen'});
+  assert.equal(client.mutations.length,0);
+  assert.equal((await storage.get('state')).daily.count,2);
+});
+
+test('dispatch reconciliation matches the marker, not a backup or unrelated manual run', async () => {
+  const pending={type:'dispatch',requestId:'wd-7-test-1',sentAt:+NOW};
+  const run={id:99,head_branch:'main',path:'.github/workflows/monitor.yml',event:'workflow_dispatch',
+    created_at:iso(+NOW),display_title:'tripster-recovery:wd-7-test-1'};
+  for(const variant of [run,{...run,display_title:'Tripster Price Monitor'},{...run,head_branch:'other'},
+    {...run,event:'schedule'},{...run,created_at:iso(+NOW-2*minute)}]) {
+    const client=new GitHubClient('test-only',async () => Response.json({total_count:1,workflow_runs:[variant]}));
+    assert.equal(await client.commandEvidence(TASKS[6],pending),variant===run?99:null);
+  }
+  const incomplete=new GitHubClient('test-only',async () => Response.json({total_count:101,workflow_runs:[run]}));
+  await assert.rejects(incomplete.commandEvidence(TASKS[6],pending),/command_run_list_incomplete/);
+});
+
+test('save retry reconciliation requires a newer attempt of the same workflow run', async () => {
+  const pending={type:'rerun_save',runId:7,runAttempt:1,sentAt:+NOW};
+  const run={id:7,head_branch:'main',path:'.github/workflows/monitor.yml',run_attempt:2};
+  const client=new GitHubClient('test-only',async () => Response.json(run));
+  assert.equal(await client.commandEvidence(TASKS[6],pending),7);
+  run.run_attempt=1;
+  assert.equal(await client.commandEvidence(TASKS[6],pending),null);
+});
+
+test('dispatch carries only a validated optional correlation input', async () => {
+  const requests=[];
+  const client=new GitHubClient('test-only',async (url,init) => {requests.push(JSON.parse(init.body));return new Response(null,{status:204});});
+  await client.mutate(TASKS[6],{type:'dispatch',requestId:'wd-7-test-1'});
+  assert.deepEqual(requests,[{ref:'main',inputs:{watchdog_request_id:'wd-7-test-1'}}]);
+  await assert.rejects(client.mutate(TASKS[6],{type:'dispatch',requestId:'bad input'}),/invalid_request_id/);
+  assert.equal(requests.length,1);
+});
+
+test('enhanced task 7 recovery still honors the active queue and the daily ceiling',async()=>{
+  const client=priceFailureClient(),storage=new MemoryStorage();client.active=true;
+  assert.equal((await recover(client,storage,{allow:['7'],reconcile:true})).action.reason,'run_already_active');
+  client.active=false;
+  await storage.put('state',{perTask:{},history:[],daily:{day:localDate(NOW),count:MAX_DAILY_ATTEMPTS}});
+  assert.equal((await recover(client,storage,{allow:['7'],reconcile:true})).action.reason,'attempt_limit');
+  assert.equal(client.mutations.length,0);
+});
+
+test('the full GitHub preflight with ledger verification fits the request budget and sends one command',async()=>{
+  const fake=priceFailureClient(),docs=fake.docs;let posts=0;
+  const client=new GitHubClient('test-only',async(url,init)=>{
+    const u=new URL(url),path=u.pathname,repo=path.split('/')[3];
+    if(init.method==='POST'){posts++;return new Response(null,{status:204});}
+    if(path.endsWith('/git/ref/heads/main'))return Response.json({object:{sha:'a'.repeat(40)}});
+    if(path.includes('/contents/')){
+      const file=decodeURIComponent(path.split('/contents/')[1]);
+      let value;
+      if(file.startsWith('.github/'))value=taggedWorkflow(TASKS.find(t=>t.repo===repo&&file.endsWith(t.workflow)).id);
+      else if(file.endsWith('runtime.json'))value=ledger();
+      else value=docs.get(`${repo}/${file}`);
+      if(!value)return new Response(null,{status:404});
+      const content=typeof value==='string'?value:JSON.stringify(value);
+      return Response.json({encoding:'base64',content:Buffer.from(content).toString('base64')});
+    }
+    if(u.searchParams.has('status'))return Response.json({total_count:0,workflow_runs:[]});
+    if(path.endsWith('/jobs'))return Response.json({total_count:2,jobs:await fake.jobs()});
+    const task=TASKS.find(t=>t.repo===repo&&path.includes(`/workflows/${t.workflow}/`));
+    return Response.json({total_count:1,workflow_runs:[{...await fake.latest(task),head_branch:'main',path:`.github/workflows/${task.workflow}`}]});
+  });
+  const result=await recover(client,undefined,{allow:['7'],reconcile:true});
+  assert.equal(result.action.type,'dispatch');assert.equal(posts,1);
+  assert.ok(result.githubRequests<=48,result.githubRequests);
 });
 

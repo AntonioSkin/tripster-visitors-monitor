@@ -2,6 +2,12 @@ name: Deploy external watchdog
 
 on:
   workflow_dispatch:
+    inputs:
+      recovery_version:
+        description: Deploy current source or the pre-reconciliation rollback snapshot
+        type: choice
+        options: [current, before-reconciliation]
+        default: current
   push:
     branches: [main]
     paths: ['external_watchdog/**', '.github/workflows/deploy-external-watchdog.yml']
@@ -19,6 +25,9 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Roll back controller source only; the Durable Object, counters and monitoring data stay intact.
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.recovery_version == 'before-reconciliation' && 'e3dc5272feaa927dc28b9ae3e486204e8194fc9f' || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -62,3 +71,9 @@ jobs:
         if: steps.access.outputs.ready == 'true'
         run: |
           echo 'Controller configuration deployed. Its active mode and recovery scope are recorded in external_watchdog/wrangler.toml; real scheduled execution is verified separately.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Read back the deployed configuration without operational data
+        if: ${{ steps.access.outputs.ready == 'true' && (github.event_name != 'workflow_dispatch' || inputs.recovery_version != 'before-reconciliation') }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ steps.access.outputs.account_id }}
+        run: node external_watchdog/verify-deployment.mjs

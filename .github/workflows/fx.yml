@@ -1,9 +1,15 @@
 name: RUB KZT monitoring
+run-name: ${{ inputs.watchdog_request_id && format('tripster-recovery:{0}', inputs.watchdog_request_id) || 'RUB KZT monitoring' }}
 on:
   schedule:
     - cron: '0 6,15 * * *'
     - cron: '20,40 6,7,15,16 * * *'
   workflow_dispatch:
+    inputs:
+      watchdog_request_id:
+        description: Optional recovery command correlation ID
+        required: false
+        type: string
   push:
     branches: [main]
     paths:
