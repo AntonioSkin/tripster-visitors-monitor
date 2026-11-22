@@ -1,0 +1,74 @@
+[
+  {
+    "key": "2026-11-24T05:15",
+    "date": "2026-11-24",
+    "time": "05:15",
+    "available": null,
+    "previous": 12,
+    "previous_observed_at": "2026-11-22T10:05:57+05:00",
+    "kind": "unpublished",
+    "detected_at": "2026-11-22T10:41:00+05:00",
+    "event_id": "897b22effb17010adea11b1fd1df7f7f16af7200a9eae93c7c72f0d4e180737e",
+    "sent_at": "2026-11-22T10:41:00.769025+05:00"
+  },
+  {
+    "key": "2026-11-24T05:30",
+    "date": "2026-11-24",
+    "time": "05:30",
+    "available": null,
+    "previous": 12,
+    "previous_observed_at": "2026-11-22T10:05:57+05:00",
+    "kind": "unpublished",
+    "detected_at": "2026-11-22T10:41:00+05:00",
+    "event_id": "3d76ab74d61f23dc6e1a3b6d08e4b4873e9479d7569f85ce4d67ab4506b8ee30",
+    "sent_at": "2026-11-22T10:41:00.769025+05:00"
+  },
+  {
+    "key": "2026-11-25T05:15",
+    "date": "2026-11-25",
+    "time": "05:15",
+    "available": null,
+    "previous": 12,
+    "previous_observed_at": "2026-11-22T10:05:57+05:00",
+    "kind": "unpublished",
+    "detected_at": "2026-11-22T10:41:00+05:00",
+    "event_id": "8a49915772b6b4107bd18bd7fb97142144eadc5df20b6f4adf7732b11269bb75",
+    "sent_at": "2026-11-22T10:41:00.769025+05:00"
+  },
+  {
+    "key": "2026-11-25T05:30",
+    "date": "2026-11-25",
+    "time": "05:30",
+    "available": null,
+    "previous": 12,
+    "previous_observed_at": "2026-11-22T10:05:57+05:00",
+    "kind": "unpublished",
+    "detected_at": "2026-11-22T10:41:00+05:00",
+    "event_id": "f38e78c7bb2f2f915b732856af30c21ee8ad0ddafb0b1e4c5ac8dc42b29caf05",
+    "sent_at": "2026-11-22T10:41:00.769025+05:00"
+  },
+  {
+    "key": "2026-11-26T05:15",
+    "date": "2026-11-26",
+    "time": "05:15",
+    "available": null,
+    "previous": 12,
+    "previous_observed_at": "2026-11-22T10:05:57+05:00",
+    "kind": "unpublished",
+    "detected_at": "2026-11-22T10:41:00+05:00",
+    "event_id": "6c0a89582954b7fa42587bcd7bae10df1328f26ce7aa2bf95dbc10a014aadaac",
+    "sent_at": "2026-11-22T10:41:00.769025+05:00"
+  },
+  {
+    "key": "2026-11-26T05:30",
+    "date": "2026-11-26",
+    "time": "05:30",
+    "available": null,
+    "previous": 12,
+    "previous_observed_at": "2026-11-22T10:05:57+05:00",
+    "kind": "unpublished",
+    "detected_at": "2026-11-22T10:41:00+05:00",
+    "event_id": "e8130accc4e2c673f993429144a18b9b6bb914d5b21e16e4bd657aa15a5d1f3b",
+    "sent_at": "2026-11-22T10:41:00.769025+05:00"
+  }
+]

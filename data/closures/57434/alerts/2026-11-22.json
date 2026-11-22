@@ -1,0 +1,110 @@
+[
+  {
+    "key": "2026-11-24T05:00",
+    "date": "2026-11-24",
+    "time": "05:00",
+    "available": null,
+    "previous": 12,
+    "previous_observed_at": "2026-11-22T10:06:06+05:00",
+    "kind": "unpublished",
+    "detected_at": "2026-11-22T10:41:08+05:00",
+    "event_id": "ba3cc91f6872bf1f9c9aaa10b4c3368245c226ace43cd55a4d2e6885e2d39a7c",
+    "sent_at": "2026-11-22T10:41:09.314478+05:00"
+  },
+  {
+    "key": "2026-11-24T05:15",
+    "date": "2026-11-24",
+    "time": "05:15",
+    "available": null,
+    "previous": 12,
+    "previous_observed_at": "2026-11-22T10:06:06+05:00",
+    "kind": "unpublished",
+    "detected_at": "2026-11-22T10:41:08+05:00",
+    "event_id": "2e2322eadb365369f2d32b9c615cf1cc7baddd1470f944aa56900e5e1b50d010",
+    "sent_at": "2026-11-22T10:41:09.314478+05:00"
+  },
+  {
+    "key": "2026-11-24T05:30",
+    "date": "2026-11-24",
+    "time": "05:30",
+    "available": null,
+    "previous": 12,
+    "previous_observed_at": "2026-11-22T10:06:06+05:00",
+    "kind": "unpublished",
+    "detected_at": "2026-11-22T10:41:08+05:00",
+    "event_id": "cece7132fc8e812aa9b270930679c0546f8b08e9e642494d849e8c28a2da9d8e",
+    "sent_at": "2026-11-22T10:41:09.314478+05:00"
+  },
+  {
+    "key": "2026-11-25T05:00",
+    "date": "2026-11-25",
+    "time": "05:00",
+    "available": null,
+    "previous": 12,
+    "previous_observed_at": "2026-11-22T10:06:06+05:00",
+    "kind": "unpublished",
+    "detected_at": "2026-11-22T10:41:08+05:00",
+    "event_id": "0bf7850d189d2491d5013997c5870079647c397c46541a04f39484e97dd1b0f9",
+    "sent_at": "2026-11-22T10:41:09.314478+05:00"
+  },
+  {
+    "key": "2026-11-25T05:15",
+    "date": "2026-11-25",
+    "time": "05:15",
+    "available": null,
+    "previous": 12,
+    "previous_observed_at": "2026-11-22T10:06:06+05:00",
+    "kind": "unpublished",
+    "detected_at": "2026-11-22T10:41:08+05:00",
+    "event_id": "d3adfc9c08aeb9f076cc17677c6c872a51118cc7e2a3560597fb24b23365377a",
+    "sent_at": "2026-11-22T10:41:09.314478+05:00"
+  },
+  {
+    "key": "2026-11-25T05:30",
+    "date": "2026-11-25",
+    "time": "05:30",
+    "available": null,
+    "previous": 12,
+    "previous_observed_at": "2026-11-22T10:06:06+05:00",
+    "kind": "unpublished",
+    "detected_at": "2026-11-22T10:41:08+05:00",
+    "event_id": "449cc84ca1ec6b4be084d8467fb01b7553e15f322d6b810f92ac52a487296275",
+    "sent_at": "2026-11-22T10:41:09.314478+05:00"
+  },
+  {
+    "key": "2026-11-26T05:00",
+    "date": "2026-11-26",
+    "time": "05:00",
+    "available": null,
+    "previous": 12,
+    "previous_observed_at": "2026-11-22T10:06:06+05:00",
+    "kind": "unpublished",
+    "detected_at": "2026-11-22T10:41:08+05:00",
+    "event_id": "f3d440441091e8109da81d96613d7a57f9a0b2bd30f6d409bd77d950d39d85b0",
+    "sent_at": "2026-11-22T10:41:09.314478+05:00"
+  },
+  {
+    "key": "2026-11-26T05:15",
+    "date": "2026-11-26",
+    "time": "05:15",
+    "available": null,
+    "previous": 12,
+    "previous_observed_at": "2026-11-22T10:06:06+05:00",
+    "kind": "unpublished",
+    "detected_at": "2026-11-22T10:41:08+05:00",
+    "event_id": "1c865d2f21f7f6321bfef45e551d04ad439387238b51a03d9e969717e854f85c",
+    "sent_at": "2026-11-22T10:41:09.314478+05:00"
+  },
+  {
+    "key": "2026-11-26T05:30",
+    "date": "2026-11-26",
+    "time": "05:30",
+    "available": null,
+    "previous": 12,
+    "previous_observed_at": "2026-11-22T10:06:06+05:00",
+    "kind": "unpublished",
+    "detected_at": "2026-11-22T10:41:08+05:00",
+    "event_id": "b0bc1b100ea23912af4b2085b69541cdce4e94d52db2b9c21f932da6a357beba",
+    "sent_at": "2026-11-22T10:41:09.314478+05:00"
+  }
+]

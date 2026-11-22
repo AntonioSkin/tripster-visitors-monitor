@@ -1,0 +1,38 @@
+[
+  {
+    "key": "2026-11-24T05:30",
+    "date": "2026-11-24",
+    "time": "05:30",
+    "available": null,
+    "previous": 12,
+    "previous_observed_at": "2026-11-22T10:06:03+05:00",
+    "kind": "unpublished",
+    "detected_at": "2026-11-22T10:41:05+05:00",
+    "event_id": "ddc3f50f865e95a0340b659a71b89cb65fa86d15a186ac0b87c59aba279ee383",
+    "sent_at": "2026-11-22T10:41:06.318514+05:00"
+  },
+  {
+    "key": "2026-11-25T05:30",
+    "date": "2026-11-25",
+    "time": "05:30",
+    "available": null,
+    "previous": 12,
+    "previous_observed_at": "2026-11-22T10:06:03+05:00",
+    "kind": "unpublished",
+    "detected_at": "2026-11-22T10:41:05+05:00",
+    "event_id": "f14e9e5592c6107292032003041fa47eb1a41dcbe11f965a93e5fa1953283555",
+    "sent_at": "2026-11-22T10:41:06.318514+05:00"
+  },
+  {
+    "key": "2026-11-26T05:30",
+    "date": "2026-11-26",
+    "time": "05:30",
+    "available": null,
+    "previous": 12,
+    "previous_observed_at": "2026-11-22T10:06:03+05:00",
+    "kind": "unpublished",
+    "detected_at": "2026-11-22T10:41:05+05:00",
+    "event_id": "3eb5175514e96891473d884c7824a97054b79a61fd62953f8d7dad154c1b13bf",
+    "sent_at": "2026-11-22T10:41:06.318514+05:00"
+  }
+]
