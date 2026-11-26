@@ -11,6 +11,12 @@ from seats.monitor import collect, experience_label, experience_url, save_json
 from telegram_report import send_message
 
 DIRECTORY = ROOT / 'data/closures'
+
+
+class CalendarReadTimeout(RuntimeError):
+    """The calendar collector timed out before sending notifications."""
+
+
 TITLES = {
     57434: 'Природа Казахстана: 5 лучших мест за 1 день из Алматы',
     85543: 'Топ-локации Алматинской области: Чарын, Кольсай и Каинды в мини-группе',
@@ -129,8 +135,16 @@ def alert_text(events, experience):
     return '\n'.join(lines)
 
 
+def collect_calendar(experience):
+    from playwright.sync_api import TimeoutError as BrowserTimeout
+    try:
+        return collect(experience)
+    except BrowserTimeout:
+        raise CalendarReadTimeout('Calendar collection timed out') from None
+
+
 def run_check(experience, directory, collect_fn=None, send_fn=send_message, now_fn=None):
-    collect_fn = collect_fn or (lambda: collect(experience))
+    collect_fn = collect_fn or (lambda: collect_calendar(experience))
     now_fn = now_fn or (lambda: datetime.now(TZ))
     state_path = directory / 'state.json'
     state = read(state_path)
@@ -167,9 +181,11 @@ def run_check(experience, directory, collect_fn=None, send_fn=send_message, now_
                   'completed_at': completed_at, 'slots': len(snapshot['slots']), 'alerts': delivered})
         print(f"Task 5, tour {experience['id']}: {len(snapshot['slots'])} departures; {delivered} closure alerts")
         return snapshot
-    except Exception:
+    except Exception as exc:
         # Healthchecks owns technical alerts; never expose Telegram credentials.
         save_json(directory / 'status.json', {'ok': False, 'checked_at': now_fn().isoformat(), 'stage': stage})
+        if isinstance(exc, CalendarReadTimeout):
+            raise
         raise RuntimeError(f"Task 5, tour {experience['id']}: {stage} not completed") from None
 
 
@@ -177,15 +193,25 @@ def run_all(directory=DIRECTORY, check_fn=None, send_fn=send_message, now_fn=Non
     check_fn = check_fn or run_check
     now_fn = now_fn or (lambda: datetime.now(TZ))
     failed = []
+    only_timeouts = True
     for experience in EXPERIENCES:
         try:
             check_fn(experience=experience, directory=directory / str(experience['id']),
                      send_fn=send_fn, now_fn=now_fn)
-        except Exception:
+        except Exception as exc:
             failed.append(experience['id'])
+            only_timeouts = only_timeouts and isinstance(exc, CalendarReadTimeout)
             print(f"Task 5, tour {experience['id']}: failed; checking the remaining tours", flush=True)
     if failed:
-        save_json(directory / 'status.json', {'ok': False, 'failed': failed, 'checked_at': now_fn().isoformat()})
+        status = {'ok': False, 'failed': failed, 'checked_at': now_fn().isoformat()}
+        run_id = os.environ.get('GITHUB_RUN_ID', '')
+        run_attempt = os.environ.get('GITHUB_RUN_ATTEMPT', '')
+        if (only_timeouts and run_id.isdecimal() and run_attempt.isdecimal()
+                and (directory / 'initialized.json').exists()
+                and all(read(directory / str(experience['id']) / 'state.json').get('pending') == []
+                        for experience in EXPERIENCES)):
+            status.update(safe_network_timeout=True, run_id=run_id, run_attempt=run_attempt)
+        save_json(directory / 'status.json', status)
         raise RuntimeError('Task 5: incomplete collection or delivery')
     initialized = directory / 'initialized.json'
     if not initialized.exists():
