@@ -8,7 +8,9 @@ const REASONS = new Set(['github_token_required','previous_mutation_result_unkno
   'incomplete_observation','request_budget_exhausted','github_read_unavailable','github_invalid_json',
   'invalid_mode','internal_error','outside_allowlist','invalid_head','invalid_file','invalid_file_encoding',
   'unexpected_workflow','active_run_list_incomplete','job_list_incomplete','artifact_list_incomplete',
-  'preflight_failed','read_failed','price_delivery_or_persistence_not_verified']);
+  'preflight_failed','read_failed','price_delivery_or_persistence_not_verified',
+  'waiting_in_queue','observation_window_closed','accepted_waiting_for_fresh_evidence',
+  'invalid_runs','command_run_list_incomplete',...STATUSES]);
 export const STATISTICS_DAYS = 7;
 const localDay = time => new Date(time + OFFSET).toISOString().slice(0,10);
 const count = (object, key, amount = 1) => { object[key] = (object[key] ?? 0) + amount; };
@@ -75,11 +77,31 @@ export function updateStatistics(previous, summary) {
   return statistics;
 }
 
+export async function recordQueueDecisions(storage, summary) {
+  if (!summary.decisions) return;
+  const at = Date.parse(summary.checkedAt);
+  const day = localDay(at), oldest = localDay(at - (STATISTICS_DAYS - 1) * DAY);
+  const indexKey = 'queue-decision-days';
+  const key = 'queue-decisions:' + day;
+  const days = await storage.get(indexKey) ?? [];
+  if (!days.includes(day)) {
+    const expired = days.filter(value => value < oldest || value > day);
+    for (const value of expired) await storage.delete('queue-decisions:' + value);
+    await storage.put(indexKey, [...days.filter(value => !expired.includes(value)), day]);
+  }
+  const rows = await storage.get(key) ?? [];
+  // An entry fits comfortably within the storage limit even on a full day.
+  const reasons = IDS.map(id => reasonCode(summary.decisions[id]));
+  await storage.put(key,[...rows.slice(-299),[summary.checkedAt,...reasons]]);
+}
+
 export async function recordCycleStatistics(storage, summary, log = value => console.log(JSON.stringify(value))) {
   const emit = value => { try { log(value); } catch {} };
   try {
     const statistics = updateStatistics(await storage.get('statistics'),summary);
     await storage.put('statistics',statistics);
+    try { await recordQueueDecisions(storage,summary); }
+    catch { emit({event:'watchdog_queue_diagnostics_failed'}); }
     const day = localDay(Date.parse(summary.checkedAt));
     emit({event:'watchdog_statistics', version:statistics.version, startedAt:statistics.startedAt,
       retainedDays:Object.keys(statistics.days).sort(), day, counters:statistics.days[day]});

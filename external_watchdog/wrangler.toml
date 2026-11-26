@@ -8,6 +8,7 @@ preview_urls = false
 MODE = "recover"
 RECOVERY_ALLOWLIST = "1,2,3,4,5,6,7"
 RECONCILE_RECOVERY = "true"
+RECOVERY_QUEUE_V2 = "true"
 
 [triggers]
 crons = ["*/5 * * * *"]

@@ -61,6 +61,39 @@ class FakeClient {
 const recover = (client, storage = new MemoryStorage(), extra = {}) =>
   cycle({client, storage, now:NOW, mode:'recover', allow:['1','2','3','4','5','6'], ...extra});
 
+test('queue v2 tries the open calendar window first, then skips a definite hold', async () => {
+  const client = new FakeClient().stale('2').stale('3').stale('4');
+  const order = [];
+  client.hasActive = async task => {
+    order.push(task.id);
+    return task.id === '3';
+  };
+  const result = await recover(client, undefined, {queueV2:true});
+  assert.deepEqual(order, ['3','2']);
+  assert.equal(result.decisions['3'],'run_already_active');
+  assert.deepEqual(client.mutations.map(x => x.task), ['2']);
+});
+
+test('queue v2 never tries a second mutation after an uncertain dispatch', async () => {
+  const client = new FakeClient().stale('2').stale('3');
+  client.mutate = async task => {
+    client.mutations.push(task.id);
+    throw new Error('Ambiguous response');
+  };
+  const result = await recover(client, undefined, {queueV2:true});
+  assert.equal(result.action.reason,'mutation_result_unknown');
+  assert.deepEqual(client.mutations, ['3']);
+});
+
+test('queue v2 prefers the rolling task that has waited longest', async () => {
+  const client = new FakeClient().stale('2').stale('5');
+  const storage = new MemoryStorage();
+  await storage.put('state',{perTask:{},history:[],daily:{},cursor:1,
+    waitingSince:{'5':+NOW - 30*minute}});
+  await recover(client, storage, {queueV2:true});
+  assert.deepEqual(client.mutations.map(x => x.task), ['5']);
+});
+
 test('observes seven tasks using data and receipts; green prices remain unverified', async () => {
   const client = new FakeClient();
   const result = await cycle({client, storage:new MemoryStorage(), now:NOW});

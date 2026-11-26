@@ -312,7 +312,23 @@ function chooseCandidate(ordered, state, client, now, allow) {
   return urgent[0] ?? ready[0] ?? candidates[0];
 }
 
-export async function cycle({client, storage, now = new Date(), mode = 'observe', allow = [], reconcile = false}) {
+function queueOrder(ordered, state, client, now, allow) {
+  const eligible = ordered.filter(result => result.eligible && allow.includes(result.id));
+  const reason = result => recoveryBlock(client, incidentFor(result, state), state, now);
+  const ready = eligible.filter(result => !reason(result));
+  const rank = result => {
+    if (state.priorityHolds[result.id] === prioritySignature(result)) return 3;
+    if (result.id === '3' && result.spec.deadline > +now) return 0;
+    if (result.spec.deadline > +now) return 1;
+    return 2;
+  };
+  ready.sort((a, b) => rank(a) - rank(b) ||
+    (rank(a) === 1 ? a.spec.deadline - b.spec.deadline :
+      (state.waitingSince[a.id] ?? +now) - (state.waitingSince[b.id] ?? +now)));
+  return [...ready, ...eligible.filter(result => reason(result))];
+}
+
+export async function cycle({client, storage, now = new Date(), mode = 'observe', allow = [], reconcile = false, queueV2 = false}) {
   if (!['observe', 'recover'].includes(mode)) throw new SafeError('invalid_mode');
   const state = await storage.get('state') ?? {perTask:{}, history:[], daily:{}};
   state.priorityHolds ??= {};
@@ -360,17 +376,39 @@ export async function cycle({client, storage, now = new Date(), mode = 'observe'
   let action = {type:'none', reason:mode === 'observe' ? 'observation_only' : 'no_eligible_task'};
   const cursor = state.cursor ?? 0;
   const ordered = [...results.slice(cursor), ...results.slice(0, cursor)];
-  const candidate = chooseCandidate(ordered, state, client, now, allow);
-  if (mode === 'recover' && candidate && (reconciliationFailed || results.some(r => r.status === 'unknown'))) {
-    action = {type:'hold', task:candidate.id, reason:'incomplete_observation'};
+  const incomplete = reconciliationFailed || results.some(r => r.status === 'unknown');
+  const decisions = {};
+  if (queueV2) {
+    state.waitingSince ??= {};
+    for (const result of results) {
+      if (result.status === 'healthy' || result.status === 'waiting' ||
+          result.reason === 'observation_window_closed') delete state.waitingSince[result.id];
+      else if (result.eligible && allow.includes(result.id)) state.waitingSince[result.id] ??= +now;
+      decisions[result.id] = result.eligible && allow.includes(result.id)
+        ? incomplete ? 'incomplete_observation' :
+          recoveryBlock(client, incidentFor(result, state), state, now) ?? 'waiting_in_queue'
+        : result.reason;
+    }
   }
-  if (mode === 'recover' && candidate) state.cursor = (results.indexOf(candidate) + 1) % TASKS.length;
-  if (mode === 'recover' && candidate && !reconciliationFailed && !results.some(r => r.status === 'unknown')) {
+  const candidates = queueV2 ? queueOrder(ordered, state, client, now, allow) :
+    [chooseCandidate(ordered, state, client, now, allow)].filter(Boolean);
+  for (const candidate of mode === 'recover' ? candidates : []) {
+    state.cursor = (results.indexOf(candidate) + 1) % TASKS.length;
+    if (incomplete) {
+      action = {type:'hold', task:candidate.id, reason:'incomplete_observation'};
+      break;
+    }
     const task = candidate.task;
     const incident = incidentFor(candidate, state);
     state.perTask[task.id] = incident;
     const blocked = recoveryBlock(client, incident, state, now);
     let preflight = false;
+    let reserved = false;
+    // Include the longest preflight path and reserve one request for the mutation.
+    if (queueV2 && !blocked && client.calls + candidate.spec.files.length + 12 > 48) {
+      decisions[task.id] = 'request_budget_exhausted';
+      continue;
+    }
     if (blocked) action = {type:'hold', reason:blocked};
     else try {
       preflight = true;
@@ -408,6 +446,7 @@ export async function cycle({client, storage, now = new Date(), mode = 'observe'
               runId:fresh.latest.id, runAttempt:fresh.latest.run_attempt ?? 1};
             // Reserve BEFORE the external mutation. A crash/timeout cannot immediately replay it.
             await storage.put('state', structuredClone(state));
+            reserved = true;
             try {
               await client.mutate(task, action);
               incident.ambiguous = false;
@@ -422,9 +461,21 @@ export async function cycle({client, storage, now = new Date(), mode = 'observe'
     } catch (e) { action = {type:'hold', reason:e instanceof SafeError ? e.message : 'preflight_failed'}; }
     if (preflight && action.type === 'hold') state.priorityHolds[task.id] = prioritySignature(candidate);
     else if (preflight) delete state.priorityHolds[task.id];
+    if (action.type === 'hold') action = {...action, task:task.id};
+    if (!queueV2) break;
+    decisions[task.id] = action.outcome ?? action.reason;
+    if (reserved) {
+      delete state.waitingSince[task.id];
+      break;
+    }
+    // Only definite local holds allow further work. A failed read or write leaves
+    // the state of the cycle uncertain, so stop here.
+    if (!blocked && !['recovered_during_check','run_already_active','workflow_lock_not_verified',
+      'no_completed_run','delivery_or_persistence_uncertain','price_delivery_or_persistence_not_verified']
+      .includes(action.reason)) break;
   }
-  if (candidate && action.type === 'hold') action = {...action, task:candidate.id};
   const summary = {checkedAt:now.toISOString(), timezone:'Asia/Almaty', mode,
+    ...(queueV2 ? {decisions} : {}),
     ...(reconciliation ? {reconciliation} : {}),
     dailyAttempts:state.daily.count, dailyLimit:MAX_DAILY_ATTEMPTS,
     tasks:results.map(({task, spec, latest, ref, eligible, ...r}) => r), action, githubRequests:client.calls};
