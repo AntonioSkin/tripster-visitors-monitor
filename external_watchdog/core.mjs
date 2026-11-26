@@ -256,7 +256,8 @@ function supportsRequestId(source) {
     /^run-name:.*format\('tripster-recovery:\{0\}', inputs\.watchdog_request_id\)/m.test(source);
 }
 
-export function restoreAction(latest, jobs = [], artifacts = [], taskId, {safePriceLedger = false} = {}) {
+export function restoreAction(latest, jobs = [], artifacts = [], taskId,
+  {safePriceLedger = false, splitTicketDelivery = false} = {}) {
   if (!latest || latest.status !== 'completed') return {type:'hold', reason:'no_completed_run'};
   if (latest.conclusion === 'success') return {type:'dispatch'};
   const saves = jobs.filter(j => /^save(?: \/ save)?$/.test(j.name));
@@ -271,6 +272,16 @@ export function restoreAction(latest, jobs = [], artifacts = [], taskId, {safePr
   }
   // A failed collector can have partially sent alerts. Require its writer to have saved deduplication state.
   if (saves.length === 1 && saves[0].conclusion === 'success') return {type:'dispatch'};
+  // The split ticket workflow proves this attempt stopped before its only send step.
+  if (taskId === '6' && splitTicketDelivery && latest.conclusion === 'failure' &&
+      collect.length === 1 && collect[0].conclusion === 'failure' &&
+      saves.length === 1 && saves[0].conclusion === 'skipped') {
+    const steps = collect[0].steps ?? [];
+    const collection = steps.filter(step => step.name === 'Collect tickets without sending notifications');
+    const delivery = steps.filter(step => step.name === 'Send ticket notifications and prepare receipt');
+    if (collection.length === 1 && collection[0].conclusion === 'failure' &&
+        delivery.length === 1 && delivery[0].conclusion === 'skipped') return {type:'dispatch'};
+  }
   // Task 7 reserves every Telegram send in the canonical ledger BEFORE the POST.
   // A lost bundle cannot erase that ledger. Never generalize this exception to tasks 1–6.
   if (taskId === '7' && safePriceLedger && collect.length === 1 && saves.length === 1 &&
@@ -432,7 +443,9 @@ export async function cycle({client, storage, now = new Date(), mode = 'observe'
           }
           action = reconcile && task.id === '7' && !safePriceLedger
             ? {type:'hold', reason:'price_delivery_or_persistence_not_verified'}
-            : restoreAction(fresh.latest, jobs, artifacts, task.id, {safePriceLedger});
+            : restoreAction(fresh.latest, jobs, artifacts, task.id, {safePriceLedger,
+              splitTicketDelivery:queueV2 && /run: python -m tickets\.monitor --collect-to /m.test(workflow) &&
+                /run: python -m tickets\.monitor --deliver-from /m.test(workflow)});
           if (action.type === 'dispatch' && reconcile && supportsRequestId(workflow)) {
             action = {...action, requestId:`wd-${task.id}-${(+now).toString(36)}-${state.daily.count + 1}`};
           }

@@ -1,4 +1,5 @@
 """Read tickets through the normal UI; persist hashes, never QR codes or orders."""
+import argparse
 import hashlib
 import json
 import os
@@ -147,16 +148,21 @@ def collect(email, password):
 
 
 def notify(rows):
+    notify_groups([[event, date, count] for (event, date), count in
+                   Counter((r[0].strip(), r[1].strip()) for r in rows).items()])
+
+
+def notify_groups(groups):
     token, chat = os.environ.get('TELEGRAM_BOT_TOKEN'), os.environ.get('TELEGRAM_CHAT_ID')
     if not token or not chat:
         raise RuntimeError('Telegram secrets are missing')
-    groups = Counter((r[0].strip(), r[1].strip()) for r in rows)
-    lines = [f'🎟 Новые билеты Zakazbiletov: {len(rows)}']
-    lines += [f'{event}\n{date} — {count} шт.' for (event, date), count in groups.items()]
+    total = sum(count for _, _, count in groups)
+    lines = [f'🎟 Новые билеты Zakazbiletov: {total}']
+    lines += [f'{event}\n{date} — {count} шт.' for event, date, count in groups]
     # Plain text: website content is not interpreted as Telegram markup.
     message = '\n\n'.join(lines)
     if len(message) > 4000:
-        message = f'🎟 Новые билеты Zakazbiletov: {len(rows)}. Подробности: {URL}'
+        message = f'🎟 Новые билеты Zakazbiletov: {total}. Подробности: {URL}'
     req = Request(f'https://api.telegram.org/bot{token}/sendMessage',
                   data=json.dumps({'chat_id': chat, 'text': message}).encode(),
                   headers={'Content-Type': 'application/json'}, method='POST')
@@ -170,8 +176,7 @@ def notify(rows):
         raise RuntimeError('Telegram delivery was not confirmed; new tickets remain unacknowledged') from None
 
 
-def run(root=ROOT, collector=collect, sender=notify, now=None):
-    now = now or datetime.now(TZ)
+def collect_pending(root=ROOT, collector=collect):
     base = root / 'data/tickets'
     state_file = base / 'state.json'
     previous = json.loads(state_file.read_text()) if state_file.exists() else None
@@ -180,24 +185,58 @@ def run(root=ROOT, collector=collect, sender=notify, now=None):
         raise RuntimeError('Add ZAKAZBILETOV_EMAIL and ZAKAZBILETOV_PASSWORD to Actions secrets')
     rows = collector(email, password)
     seen, new = plan(previous, rows)
+    pending = {'seen': sorted(seen), 'groups': [[event, date, count] for (event, date), count in
+            Counter((r[0].strip(), r[1].strip()) for r in new).items()],
+            'baseline': previous is None, 'tickets_count': len(rows), 'new_count': len(new)}
+    return pending, new
+
+
+def finish(pending, root=ROOT, sender=notify_groups):
+    base = root / 'data/tickets'
+    new = pending['new_count']
     if new:
-        sender(new)
+        sender(pending['groups'])
     checked = datetime.now(TZ).isoformat()
-    state = {'version': 1, 'seen': sorted(seen), 'last_success': checked}
-    receipt = {'ok': True, 'completed_at': checked, 'baseline': previous is None,
-               'tickets_count': len(rows), 'new_count': len(new), 'alert_sent': bool(new)}
+    state = {'version': 1, 'seen': pending['seen'], 'last_success': checked}
+    receipt = {'ok': True, 'completed_at': checked, 'baseline': pending['baseline'],
+               'tickets_count': pending['tickets_count'], 'new_count': new, 'alert_sent': bool(new)}
     if new:
         receipt['sent_at'] = datetime.now(TZ).isoformat()
     base.mkdir(parents=True, exist_ok=True)
     for name, value in (('state.json', state), ('completed.json', receipt)):
         (base / name).write_text(json.dumps(value, ensure_ascii=False, indent=2) + '\n')
-    print(f'Task 6: checked {len(rows)} tickets; new {len(new)}; baseline {previous is None}; delivery complete')
+    print('Task 6: collection and delivery complete')
+
+
+def run(root=ROOT, collector=collect, sender=notify, now=None):
+    pending, rows = collect_pending(root, collector)
+    finish(pending, root, lambda _: sender(rows))
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    stages = parser.add_mutually_exclusive_group()
+    stages.add_argument('--collect-to', type=Path)
+    stages.add_argument('--deliver-from', type=Path)
+    args = parser.parse_args()
+    if args.collect_to:
+        pending, _ = collect_pending()
+        fd = os.open(args.collect_to, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, 'w') as state:
+            json.dump(pending, state)
+    elif args.deliver_from:
+        try:
+            finish(json.loads(args.deliver_from.read_text()))
+        finally:
+            args.deliver_from.unlink(missing_ok=True)
+    else:
+        run()
 
 
 if __name__ == '__main__':
     try:
-        run()
+        main()
     except Exception as exc:
         # Playwright errors can include private row text; keep logs redacted.
-        print(str(exc) if isinstance(exc, RuntimeError) else f'Task 6 failed ({type(exc).__name__}); private browser details suppressed')
+        print(f'Task 6 failed ({type(exc).__name__}); private details suppressed')
         raise SystemExit(1) from None
