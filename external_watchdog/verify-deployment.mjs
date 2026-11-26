@@ -21,6 +21,9 @@ export async function verify(env, fetcher = (url, init) => globalThis.fetch(url,
       (env.EXPECT_QUEUE_V2 !== 'true' || (bindings.some(binding =>
         binding.type === 'plain_text' && binding.name === 'RECOVERY_QUEUE_V2' && binding.text === 'true') &&
         ['recordQueueDecisions','RECOVERY_QUEUE_V2'].every(marker => source.includes(marker)))) &&
+      (env.EXPECT_CLOSURES_THIRD_RETRY !== 'true' || (bindings.some(binding =>
+        binding.type === 'plain_text' && binding.name === 'CLOSURES_THIRD_RETRY' && binding.text === 'true') &&
+        source.includes('closure_timeout_not_verified'))) &&
       bindings.some(binding => binding.type === 'durable_object_namespace' && binding.name === 'WATCHDOG_STATE' && binding.class_name === 'WatchdogState') &&
       schedules.success === true && schedules.result?.schedules?.length === 1 &&
       schedules.result.schedules[0].cron === '*/5 * * * *' &&

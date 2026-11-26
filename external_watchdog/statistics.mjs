@@ -10,7 +10,7 @@ const REASONS = new Set(['github_token_required','previous_mutation_result_unkno
   'unexpected_workflow','active_run_list_incomplete','job_list_incomplete','artifact_list_incomplete',
   'preflight_failed','read_failed','price_delivery_or_persistence_not_verified',
   'waiting_in_queue','observation_window_closed','accepted_waiting_for_fresh_evidence',
-  'invalid_runs','command_run_list_incomplete',...STATUSES]);
+  'invalid_runs','command_run_list_incomplete','closure_timeout_not_verified',...STATUSES]);
 export const STATISTICS_DAYS = 7;
 const localDay = time => new Date(time + OFFSET).toISOString().slice(0,10);
 const count = (object, key, amount = 1) => { object[key] = (object[key] ?? 0) + amount; };

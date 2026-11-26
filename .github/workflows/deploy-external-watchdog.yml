@@ -6,7 +6,7 @@ on:
       recovery_version:
         description: Deploy current source or a pinned rollback snapshot
         type: choice
-        options: [current, before-queue-v2, before-reconciliation]
+        options: [current, before-closures-third-retry, before-queue-v2, before-reconciliation]
         default: current
   push:
     branches: [main]
@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           # Roll back controller source only; the Durable Object, counters and monitoring data stay intact.
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.recovery_version == 'before-queue-v2' && '4c86da10a0fed7cfd2afe9ce621639a91a2ac769' || github.event_name == 'workflow_dispatch' && inputs.recovery_version == 'before-reconciliation' && 'e3dc5272feaa927dc28b9ae3e486204e8194fc9f' || github.sha }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.recovery_version == 'before-closures-third-retry' && '1cb38ddaf6314b4275a8ca4ef5f755f2a39bacf2' || github.event_name == 'workflow_dispatch' && inputs.recovery_version == 'before-queue-v2' && '4c86da10a0fed7cfd2afe9ce621639a91a2ac769' || github.event_name == 'workflow_dispatch' && inputs.recovery_version == 'before-reconciliation' && 'e3dc5272feaa927dc28b9ae3e486204e8194fc9f' || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -77,4 +77,5 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ steps.access.outputs.account_id }}
           EXPECT_QUEUE_V2: ${{ github.event_name != 'workflow_dispatch' || inputs.recovery_version == 'current' }}
+          EXPECT_CLOSURES_THIRD_RETRY: ${{ github.event_name != 'workflow_dispatch' || inputs.recovery_version == 'current' }}
         run: node external_watchdog/verify-deployment.mjs

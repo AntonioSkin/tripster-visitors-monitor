@@ -111,6 +111,43 @@ test('ticket retry requires positive proof that its only send step was skipped',
   assert.equal(restoreAction(latest,[{...collect,steps:[collect.steps[0]]},save],[],'6',options).type,'hold');
 });
 
+test('third closure retry needs correlated saved timeouts and waits 90 minutes after failure', async () => {
+  const client = new FakeClient().stale('5');
+  const storage = new MemoryStorage();
+  const task = TASKS[4];
+  const status = `${task.repo}/data/closures/status.json`;
+  const file = client.file.bind(client);
+  client.file = (repo,path) => path.endsWith('closures.yml') ? taggedWorkflow('5') : file(repo,path);
+  let latest = {id:50,status:'completed',conclusion:'success',run_attempt:1};
+  client.latest = async checked => checked.id === '5' ? latest : FakeClient.prototype.latest.call(client,checked);
+  client.jobs = async () => [{name:'closures',conclusion:'failure'},{name:'save / save',conclusion:'success'}];
+  const at = minutes => {
+    client.calls = 0;
+    return recover(client,storage,{now:new Date(+NOW + minutes*minute),allow:['5'],
+      queueV2:true,reconcile:true,closureThirdRetry:true});
+  };
+  function failure(id, ended) {
+    const request = client.mutations.at(-1).action.requestId;
+    latest = {id,status:'completed',conclusion:'failure',run_attempt:1,
+      updated_at:iso(+NOW+ended*minute),display_title:`tripster-recovery:${request}`};
+    client.docs.set(status,{ok:false,safe_network_timeout:true,run_id:String(id),run_attempt:'1'});
+  }
+  assert.equal((await at(0)).action.type,'dispatch');
+  failure(51,5);
+  assert.equal((await at(45)).action.type,'dispatch');
+  failure(52,50);
+  assert.equal((await at(139)).action.reason,'cooldown');
+  client.docs.set(status,{...client.docs.get(status),run_id:'51'});
+  assert.equal((await at(140)).action.reason,'attempt_limit');
+  failure(52,50);
+  client.jobs = async () => [{name:'closures',conclusion:'failure'},{name:'save / save',conclusion:'skipped'}];
+  assert.equal((await at(140)).action.reason,'closure_timeout_not_verified');
+  client.jobs = async () => [{name:'closures',conclusion:'failure'},{name:'save / save',conclusion:'success'}];
+  assert.equal((await at(145)).action.type,'dispatch');
+  assert.equal((await at(190)).action.reason,'attempt_limit');
+  assert.equal(client.mutations.length,3);
+});
+
 test('observes seven tasks using data and receipts; green prices remain unverified', async () => {
   const client = new FakeClient();
   const result = await cycle({client, storage:new MemoryStorage(), now:NOW});

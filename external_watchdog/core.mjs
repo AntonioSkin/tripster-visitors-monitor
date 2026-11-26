@@ -234,7 +234,10 @@ export async function readTask(client, task, now, ref) {
   const latest = await client.latest(task);
   const docs = [];
   for (const path of spec.files) docs.push(await client.file(task.repo, path, ref));
-  return {...assess(task, spec, docs, latest, now), task, spec, latest, ref};
+  const closureFailure = task.id === '5' && docs[1]?.ok === false &&
+    docs[1].safe_network_timeout === true && docs[1].run_id === String(latest?.id) &&
+    docs[1].run_attempt === String(latest?.run_attempt ?? 1) && latest?.conclusion === 'failure';
+  return {...assess(task, spec, docs, latest, now), task, spec, latest, ref, closureFailure};
 }
 
 function workflowSafe(source, task) {
@@ -299,12 +302,28 @@ function incidentFor(result, state) {
   return previous?.key === key ? previous : {key, attempts:0};
 }
 
-function recoveryBlock(client, incident, state, now) {
+function recoveryBlock(client, incident, state, now, thirdReady = false) {
   if (!client.token) return 'github_token_required';
   if (incident.ambiguous) return 'previous_mutation_result_unknown';
-  if (incident.attempts >= 2 || state.daily.count >= MAX_DAILY_ATTEMPTS) return 'attempt_limit';
-  if (incident.lastAttempt && +now - incident.lastAttempt < 45 * MINUTE) return 'cooldown';
+  if (incident.attempts >= (thirdReady ? 3 : 2) || state.daily.count >= MAX_DAILY_ATTEMPTS) return 'attempt_limit';
+  if (incident.lastAttempt && +now - incident.lastAttempt < (incident.attempts === 2 ? 90 : 45) * MINUTE) return 'cooldown';
   return null;
+}
+
+function closureTimeoutMatches(result, incident) {
+  return result.closureFailure && typeof incident.closureRequestId === 'string' &&
+    result.latest.display_title === `tripster-recovery:${incident.closureRequestId}`;
+}
+
+function queueBlock(result, state, client, now, closureThirdRetry) {
+  const incident = incidentFor(result, state);
+  const thirdReady = closureThirdRetry && result.id === '5' &&
+    incident.firstClosureTimeout === true && closureTimeoutMatches(result, incident);
+  const hold = recoveryBlock(client, incident, state, now, thirdReady);
+  if (hold || !thirdReady || incident.attempts !== 2) return hold;
+  const ended = Date.parse(result.latest.updated_at);
+  if (!Number.isFinite(ended) || ended > +now) return 'closure_timeout_not_verified';
+  return +now - ended < 90 * MINUTE ? 'cooldown' : null;
 }
 
 function prioritySignature(result) {
@@ -323,9 +342,9 @@ function chooseCandidate(ordered, state, client, now, allow) {
   return urgent[0] ?? ready[0] ?? candidates[0];
 }
 
-function queueOrder(ordered, state, client, now, allow) {
+function queueOrder(ordered, state, client, now, allow, closureThirdRetry) {
   const eligible = ordered.filter(result => result.eligible && allow.includes(result.id));
-  const reason = result => recoveryBlock(client, incidentFor(result, state), state, now);
+  const reason = result => queueBlock(result, state, client, now, closureThirdRetry);
   const ready = eligible.filter(result => !reason(result));
   const rank = result => {
     if (state.priorityHolds[result.id] === prioritySignature(result)) return 3;
@@ -339,7 +358,8 @@ function queueOrder(ordered, state, client, now, allow) {
   return [...ready, ...eligible.filter(result => reason(result))];
 }
 
-export async function cycle({client, storage, now = new Date(), mode = 'observe', allow = [], reconcile = false, queueV2 = false}) {
+export async function cycle({client, storage, now = new Date(), mode = 'observe', allow = [],
+  reconcile = false, queueV2 = false, closureThirdRetry = false}) {
   if (!['observe', 'recover'].includes(mode)) throw new SafeError('invalid_mode');
   const state = await storage.get('state') ?? {perTask:{}, history:[], daily:{}};
   state.priorityHolds ??= {};
@@ -397,11 +417,11 @@ export async function cycle({client, storage, now = new Date(), mode = 'observe'
       else if (result.eligible && allow.includes(result.id)) state.waitingSince[result.id] ??= +now;
       decisions[result.id] = result.eligible && allow.includes(result.id)
         ? incomplete ? 'incomplete_observation' :
-          recoveryBlock(client, incidentFor(result, state), state, now) ?? 'waiting_in_queue'
+          queueBlock(result, state, client, now, closureThirdRetry) ?? 'waiting_in_queue'
         : result.reason;
     }
   }
-  const candidates = queueV2 ? queueOrder(ordered, state, client, now, allow) :
+  const candidates = queueV2 ? queueOrder(ordered, state, client, now, allow, closureThirdRetry) :
     [chooseCandidate(ordered, state, client, now, allow)].filter(Boolean);
   for (const candidate of mode === 'recover' ? candidates : []) {
     state.cursor = (results.indexOf(candidate) + 1) % TASKS.length;
@@ -412,7 +432,7 @@ export async function cycle({client, storage, now = new Date(), mode = 'observe'
     const task = candidate.task;
     const incident = incidentFor(candidate, state);
     state.perTask[task.id] = incident;
-    const blocked = recoveryBlock(client, incident, state, now);
+    const blocked = queueBlock(candidate, state, client, now, queueV2 && closureThirdRetry);
     let preflight = false;
     let reserved = false;
     // Include the longest preflight path and reserve one request for the mutation.
@@ -449,7 +469,18 @@ export async function cycle({client, storage, now = new Date(), mode = 'observe'
           if (action.type === 'dispatch' && reconcile && supportsRequestId(workflow)) {
             action = {...action, requestId:`wd-${task.id}-${(+now).toString(36)}-${state.daily.count + 1}`};
           }
+          const closureTimeoutSaved = task.id === '5' && closureThirdRetry &&
+            closureTimeoutMatches(fresh, incident) && jobs.filter(job => /^save(?: \/ save)?$/.test(job.name)).length === 1 &&
+            jobs.some(job => /^save(?: \/ save)?$/.test(job.name) && job.conclusion === 'success');
+          if (incident.attempts === 2 && (!closureTimeoutSaved || action.type !== 'dispatch' ||
+              !action.requestId || fresh.lastSuccess !== candidate.lastSuccess)) {
+            action = {type:'hold', reason:'closure_timeout_not_verified'};
+          }
           if (action.type !== 'hold') {
+            if (task.id === '5' && closureThirdRetry) {
+              if (incident.attempts === 1) incident.firstClosureTimeout = closureTimeoutSaved;
+              incident.closureRequestId = action.requestId;
+            }
             incident.attempts++;
             incident.lastAttempt = +now;
             incident.ambiguous = true;
@@ -484,14 +515,14 @@ export async function cycle({client, storage, now = new Date(), mode = 'observe'
     // Only definite local holds allow further work. A failed read or write leaves
     // the state of the cycle uncertain, so stop here.
     if (!blocked && !['recovered_during_check','run_already_active','workflow_lock_not_verified',
-      'no_completed_run','delivery_or_persistence_uncertain','price_delivery_or_persistence_not_verified']
+      'no_completed_run','delivery_or_persistence_uncertain','price_delivery_or_persistence_not_verified','closure_timeout_not_verified']
       .includes(action.reason)) break;
   }
   const summary = {checkedAt:now.toISOString(), timezone:'Asia/Almaty', mode,
     ...(queueV2 ? {decisions} : {}),
     ...(reconciliation ? {reconciliation} : {}),
     dailyAttempts:state.daily.count, dailyLimit:MAX_DAILY_ATTEMPTS,
-    tasks:results.map(({task, spec, latest, ref, eligible, ...r}) => r), action, githubRequests:client.calls};
+    tasks:results.map(({task, spec, latest, ref, eligible, closureFailure, ...r}) => r), action, githubRequests:client.calls};
   state.history = [...state.history.slice(-99), summary];
   state.last = summary;
   await storage.put('state', state);

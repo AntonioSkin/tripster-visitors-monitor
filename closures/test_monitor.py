@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from calendar_history.combined import GROUPS
-from closures.monitor import EXPERIENCES, alert_text, prepare, read, reconcile_history, run_all, run_check
+from closures.monitor import CalendarReadTimeout, EXPERIENCES, alert_text, prepare, read, reconcile_history, run_all, run_check
 from monitor import TZ
 
 
@@ -158,6 +158,22 @@ class ClosureTests(unittest.TestCase):
         complete = read(self.root / 'completed.json')
         self.assertTrue(complete['ok'])
         self.assertEqual(set(complete['tours']), {tour['id'] for tour in EXPERIENCES})
+
+    @patch.dict(os.environ, {'GITHUB_RUN_ID':'123', 'GITHUB_RUN_ATTEMPT':'1'})
+    def test_safe_timeout_evidence_excludes_pending_or_ambiguous_delivery(self):
+        (self.root / 'initialized.json').touch()
+        for experience in EXPERIENCES:
+            folder = self.root / str(experience['id'])
+            folder.mkdir()
+            (folder / 'state.json').write_text('{"pending":[]}')
+        for error, safe in [(CalendarReadTimeout('collection'),True),(RuntimeError('delivery'),False)]:
+            with self.assertRaises(RuntimeError):
+                run_all(self.root,check_fn=Mock(side_effect=error),now_fn=lambda:self.now)
+            self.assertEqual(read(self.root / 'status.json').get('safe_network_timeout',False),safe)
+        (self.root / str(self.tour['id']) / 'state.json').write_text('{"pending":[{}]}')
+        with self.assertRaises(RuntimeError):
+            run_all(self.root,check_fn=Mock(side_effect=CalendarReadTimeout('collection')),now_fn=lambda:self.now)
+        self.assertNotIn('safe_network_timeout',read(self.root / 'status.json'))
 
 
 if __name__ == '__main__':

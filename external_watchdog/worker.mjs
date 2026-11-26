@@ -24,7 +24,8 @@ export class WatchdogState {
       const allow = (this.env.RECOVERY_ALLOWLIST ?? '').split(',').map(x => x.trim()).filter(Boolean);
       const summary = await cycle({client:new GitHubClient(this.env.GITHUB_TOKEN),
         storage:this.ctx.storage, mode, allow, reconcile:this.env.RECONCILE_RECOVERY === 'true',
-        queueV2:this.env.RECOVERY_QUEUE_V2 === 'true'});
+        queueV2:this.env.RECOVERY_QUEUE_V2 === 'true',
+        closureThirdRetry:this.env.CLOSURES_THIRD_RETRY === 'true'});
       await recordCycleStatistics(this.ctx.storage,summary);
       console.log(JSON.stringify(summary));
       return Response.json({ok:true});
