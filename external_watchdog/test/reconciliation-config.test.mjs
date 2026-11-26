@@ -33,6 +33,16 @@ test('missing feature, wrong schedule, old code and read failures cannot verify 
   }
 });
 
+test('current deployment must read back the new queue flag and code',async()=>{
+  const configured = structuredClone(settings);
+  configured.result.bindings.push({type:'plain_text',name:'RECOVERY_QUEUE_V2',text:'true'});
+  const read = async (url, source) => url.endsWith('/settings') ? Response.json(configured)
+    : url.endsWith('/schedules') ? Response.json(schedules) : new Response(source);
+  const enabled = {...env,EXPECT_QUEUE_V2:'true'};
+  assert.equal(await verify(enabled,url=>read(url,code)),false);
+  assert.equal(await verify(enabled,url=>read(url,code+' RECOVERY_QUEUE_V2 recordQueueDecisions')),true);
+});
+
 test('six original workflows accept optional correlation without changing their queues or browser OS',()=>{
   for(const [id,name] of [['1','daily'],['2','seats'],['3','calendar-history'],['4','fx'],['5','closures'],['6','tickets']]){
     const source=readFileSync(new URL(`../../.github/workflows/${name}.yml`,import.meta.url),'utf8');
@@ -46,7 +56,8 @@ test('six original workflows accept optional correlation without changing their 
 
 test('rollback selects only a pinned source snapshot and leaves the production identity unchanged',()=>{
   const source=readFileSync(new URL('../../.github/workflows/deploy-external-watchdog.yml',import.meta.url),'utf8');
-  assert.match(source,/options: \[current, before-reconciliation\]/);
+  assert.match(source,/options: \[current, before-queue-v2, before-reconciliation\]/);
+  assert.match(source,/inputs\.recovery_version == 'before-queue-v2' && '4c86da10a0fed7cfd2afe9ce621639a91a2ac769'/);
   assert.match(source,/default: current/);
   assert.match(source,/inputs\.recovery_version == 'before-reconciliation' && 'e3dc5272feaa927dc28b9ae3e486204e8194fc9f' \|\| github.sha/);
   const config=readFileSync(new URL('../wrangler.toml',import.meta.url),'utf8');

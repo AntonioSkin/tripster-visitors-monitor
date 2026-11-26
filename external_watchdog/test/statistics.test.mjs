@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {updateStatistics, recordCycleStatistics} from '../statistics.mjs';
+import {updateStatistics, recordCycleStatistics, recordQueueDecisions} from '../statistics.mjs';
 
 const at = '2026-11-11T13:00:00Z';
 const summary = extra => ({checkedAt:at, mode:'recover', githubRequests:24,
@@ -63,6 +63,21 @@ test('failed cycles are counted with redacted reasons', () => {
   assert.equal(stats.days['2026-11-11'].failedChecks,1);
   assert.equal(stats.days['2026-11-11'].holdReasons.other,1);
   assert.equal(JSON.stringify(stats).includes('PRIVATE_UNEXPECTED_ERROR'),false);
+});
+
+test('queue diagnostics retain only seven Shymkent days and allowlisted reasons', async () => {
+  const values = new Map();
+  const storage = {get:async key => values.get(key), put:async(key,value) => values.set(key,value),
+    delete:async key => values.delete(key)};
+  for (let day=1; day<=8; day++) {
+    await recordQueueDecisions(storage,summary({
+      checkedAt:`2026-11-0${day}T19:05:00Z`, decisions:{'3':'waiting_in_queue','7':'PRIVATE_TEST_VALUE'},
+    }));
+  }
+  assert.equal(values.get('queue-decision-days').length,7);
+  assert.equal(values.has('queue-decisions:2026-11-02'),false);
+  assert.equal(values.get('queue-decisions:2026-11-09')[0][3],'waiting_in_queue');
+  assert.equal(values.get('queue-decisions:2026-11-09')[0][7],'other');
 });
 
 test('statistics storage cannot overwrite recovery counters or turn a storage fault into replay', async () => {
