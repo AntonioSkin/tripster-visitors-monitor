@@ -94,6 +94,23 @@ test('queue v2 prefers the rolling task that has waited longest', async () => {
   assert.deepEqual(client.mutations.map(x => x.task), ['5']);
 });
 
+test('ticket retry requires positive proof that its only send step was skipped', () => {
+  const latest = {status:'completed',conclusion:'failure'};
+  const collect = {name:'collect',conclusion:'failure',steps:[
+    {name:'Collect tickets without sending notifications',conclusion:'failure'},
+    {name:'Send ticket notifications and prepare receipt',conclusion:'skipped'},
+  ]};
+  const save = {name:'save',conclusion:'skipped'};
+  const options = {splitTicketDelivery:true};
+  assert.equal(restoreAction(latest,[collect,save],[],'6',options).type,'dispatch');
+  assert.equal(restoreAction(latest,[collect,save],[],'6').type,'hold');
+  for (const conclusion of ['failure','success','cancelled',null]) {
+    const steps = [collect.steps[0],{...collect.steps[1],conclusion}];
+    assert.equal(restoreAction(latest,[{...collect,steps},save],[],'6',options).type,'hold');
+  }
+  assert.equal(restoreAction(latest,[{...collect,steps:[collect.steps[0]]},save],[],'6',options).type,'hold');
+});
+
 test('observes seven tasks using data and receipts; green prices remain unverified', async () => {
   const client = new FakeClient();
   const result = await cycle({client, storage:new MemoryStorage(), now:NOW});

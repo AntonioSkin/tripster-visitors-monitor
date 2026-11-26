@@ -42,13 +42,16 @@ jobs:
       - run: python -m playwright install --with-deps chromium
       - name: Test ticket identity and delivery retry
         run: python -m unittest tickets.test_monitor -v
-      - name: Check all ticket pages and notify about new tickets
+      - name: Collect tickets without sending notifications
         env:
           ZAKAZBILETOV_EMAIL: ${{ secrets.ZAKAZBILETOV_EMAIL }}
           ZAKAZBILETOV_PASSWORD: ${{ secrets.ZAKAZBILETOV_PASSWORD }}
+        run: python -m tickets.monitor --collect-to "$RUNNER_TEMP/ticket-pending.json"
+      - name: Send ticket notifications and prepare receipt
+        env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python -m tickets.monitor
+        run: python -m tickets.monitor --deliver-from "$RUNNER_TEMP/ticket-pending.json"
       - name: Package private-data-free results
         id: package
         run: python -m workflow_support.persistence export --task 6 --directory "$RUNNER_TEMP/monitor-bundle"
@@ -58,6 +61,9 @@ jobs:
           name: ${{ steps.package.outputs.artifact }}
           path: ${{ runner.temp }}/monitor-bundle
           retention-days: 7
+      - name: Remove runner-local ticket state
+        if: always()
+        run: rm -f -- "$RUNNER_TEMP/ticket-pending.json"
   save:
     needs: collect
     if: needs.collect.outputs.changed == 'true'

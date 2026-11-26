@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
-from tickets.monitor import identify, plan, run, secure_document
+from tickets.monitor import collect_pending, finish, identify, plan, run, secure_document
 
 
 def row(qr='private-qr', scanned='Нет'):
@@ -33,6 +33,20 @@ class TicketTests(unittest.TestCase):
                                ({'version': 1, 'seen': ['bad']}, [row()]), (None, [])]:
             with self.assertRaises(RuntimeError):
                 plan(previous, rows)
+
+    @patch.dict(os.environ, {'ZAKAZBILETOV_EMAIL': 'test', 'ZAKAZBILETOV_PASSWORD': 'test'})
+    def test_split_collection_keeps_only_summary_and_cannot_send(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            run(root, lambda *_: [row()])
+            pending, _ = collect_pending(root, lambda *_: [row(), row('new-private-qr')])
+            self.assertNotIn('private', json.dumps(pending))
+            sender = Mock(side_effect=RuntimeError('unknown delivery'))
+            before = (root / 'data/tickets/completed.json').read_text()
+            with self.assertRaises(RuntimeError):
+                finish(pending, root, sender)
+            self.assertEqual((root / 'data/tickets/completed.json').read_text(), before)
+            sender.assert_called_once_with([['Tour', '01.11.2026', 1]])
 
     @patch.dict(os.environ, {'ZAKAZBILETOV_EMAIL': 'test', 'ZAKAZBILETOV_PASSWORD': 'test'})
     def test_failed_delivery_is_not_acknowledged_and_public_files_have_no_secrets(self):
