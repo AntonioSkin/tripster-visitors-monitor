@@ -1,6 +1,6 @@
 {
   "experience_id": 51584,
-  "checked_at": "2026-11-27T10:22:33+05:00",
+  "checked_at": "2026-11-27T10:56:15+05:00",
   "timezone": "Asia/Aqtau",
   "date_from": "2026-11-27",
   "date_to": "2026-12-26",
@@ -28,12 +28,6 @@
       "date": "2026-12-03",
       "time": "05:45",
       "available": 11
-    },
-    {
-      "key": "2026-12-04T05:45",
-      "date": "2026-12-04",
-      "time": "05:45",
-      "available": 7
     },
     {
       "key": "2026-12-05T05:45",
@@ -166,6 +160,7 @@
     "2026-11-27",
     "2026-11-28",
     "2026-11-30",
+    "2026-12-04",
     "2026-12-06"
   ],
   "source": "https://experience.tripster.ru/api/web/v1/experiences/51584/schedule/"
