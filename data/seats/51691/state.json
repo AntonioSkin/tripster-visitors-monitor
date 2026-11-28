@@ -3,6 +3,6 @@
     "2026-11-29T05:45": 5
   },
   "initialized": true,
-  "error_notified": false,
+  "error_notified": true,
   "last_success": "2026-11-28T15:46:21+05:00"
 }
